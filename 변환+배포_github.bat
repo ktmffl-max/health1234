@@ -17,13 +17,17 @@ if errorlevel 1 (echo  이 폴더는 아직 git 저장소가 아닙니다. 최�
 git add -A
 if errorlevel 1 goto :fail
 
+rem 스테이징된 변경이 없으면 커밋만 건너뛴다.
+rem 여기서 :end 로 빠지면 아직 push 안 된 커밋이 영영 안 올라간다.
 git diff --cached --quiet
-if not errorlevel 1 (echo  바뀐 내용이 없습니다. & goto :end)
+if not errorlevel 1 (
+  echo  바뀐 내용이 없습니다. 커밋은 건너뛰고 push만 합니다.
+) else (
+  git commit -m "운동프로그램 갱신 %date% %time%"
+  if errorlevel 1 goto :fail
+)
 
-git commit -m "운동프로그램 갱신 %date% %time%"
-if errorlevel 1 goto :fail
-
-git push
+git push -u origin main
 if errorlevel 1 goto :fail
 
 echo.

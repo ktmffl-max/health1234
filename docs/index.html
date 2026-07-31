@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15181C">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="robots" content="noindex, nofollow">
+<title>운동 프로그램</title>
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+:root{
+  --bg:#15181C; --surface:#1E232A; --raised:#272E37; --line:#333B45;
+  --ink:#F0EEE9; --mute:#8B95A1; --dim:#5F6874;
+  --sq:#C93A42; --dl:#2B62B0; --bp:#DDA51B; --mp:#2E9161;
+  --chrome:#B9C0C8; --pad:16px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+  font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Segoe UI",Roboto,"Noto Sans KR",sans-serif;
+  font-size:15px;line-height:1.55;letter-spacing:-.01em;padding-bottom:56px;-webkit-text-size-adjust:100%}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+header{position:sticky;top:0;z-index:40;background:rgba(21,24,28,.94);
+  backdrop-filter:saturate(160%) blur(12px);border-bottom:1px solid var(--line);
+  padding:calc(env(safe-area-inset-top) + 10px) var(--pad) 0}
+.brand{display:flex;align-items:baseline;gap:8px;margin-bottom:10px}
+.brand h1{font-size:15px;font-weight:800;margin:0;letter-spacing:-.02em}
+.brand span{font-size:11px;color:var(--dim);font-weight:600}
+.modes{display:flex;gap:6px;margin-left:auto}
+.modes button{font:inherit;font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:999px;
+  background:transparent;color:var(--mute);border:1px solid var(--line);cursor:pointer}
+.modes button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.weekbar{display:flex;align-items:center;gap:12px;padding-bottom:12px}
+.wk-step{width:38px;height:38px;flex:0 0 auto;border-radius:11px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink);font-size:20px;line-height:1;cursor:pointer;
+  display:grid;place-items:center;font-family:inherit}
+.wk-step:active{background:var(--raised)}
+.wk-step[disabled]{opacity:.3}
+.wk-read{flex:1;text-align:center}
+.wk-read b{font-size:23px;font-weight:800;letter-spacing:-.03em}
+.wk-read i{font-style:normal;font-size:11px;color:var(--dim);display:block;margin-top:-2px;letter-spacing:.06em}
+.wk-track{display:flex;gap:3px;padding:0 0 10px}
+.wk-track span{flex:1;height:3px;border-radius:2px;background:#2A313A}
+.wk-track span.on{background:var(--ink)}
+nav{display:flex;overflow-x:auto;scrollbar-width:none;border-top:1px solid var(--line);
+  margin:0 calc(var(--pad)*-1);padding:0 var(--pad)}
+nav::-webkit-scrollbar{display:none}
+nav button{font:inherit;font-size:13px;font-weight:700;white-space:nowrap;background:none;
+  border:none;border-bottom:2px solid transparent;color:var(--dim);padding:11px 13px;cursor:pointer}
+nav button[aria-pressed="true"]{color:var(--ink);border-bottom-color:var(--ink)}
+main{padding:18px var(--pad) 0;max-width:640px;margin:0 auto}
+.daytitle{font-size:22px;font-weight:800;letter-spacing:-.03em;margin:0 0 3px}
+.daysub{font-size:12.5px;color:var(--mute);margin:0 0 18px;line-height:1.5}
+.lift{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-bottom:20px}
+.lift-top{padding:15px 16px 13px;display:flex;align-items:flex-end;gap:14px;border-left:4px solid var(--accent)}
+.lift-name{flex:1;min-width:0}
+.lift-name .eyebrow{font-size:10px;font-weight:800;letter-spacing:.14em;color:var(--accent);margin-bottom:3px}
+.lift-name h3{margin:0;font-size:17px;font-weight:800;letter-spacing:-.02em}
+.lift-name p{margin:2px 0 0;font-size:12px;color:var(--mute)}
+.bigw{text-align:right;line-height:.9}
+.bigw b{font-size:42px;font-weight:800;letter-spacing:-.045em}
+.bigw i{font-style:normal;font-size:13px;font-weight:700;color:var(--mute);margin-left:2px}
+.bar{padding:0 16px 14px;border-left:4px solid var(--accent)}
+.bar-label{font-size:10px;font-weight:800;letter-spacing:.12em;color:var(--dim);margin-bottom:7px}
+.stack{display:flex;align-items:center;gap:3px;min-height:44px}
+.sleeve{width:26px;height:5px;background:var(--chrome);border-radius:2px;opacity:.55}
+.pl{border-radius:2px;flex:0 0 auto}
+.stack em{font-style:normal;font-size:12px;color:var(--dim);margin-left:6px}
+.ramp{border-top:1px solid var(--line);display:grid;grid-template-columns:1fr auto auto;font-size:13.5px}
+.ramp div{padding:9px 16px;border-bottom:1px solid rgba(51,59,69,.5)}
+.ramp .h{font-size:10px;font-weight:800;letter-spacing:.1em;color:var(--dim);padding-top:10px;padding-bottom:6px}
+.ramp .r-w{font-weight:700}
+.ramp .r-x{color:var(--mute);text-align:right;font-size:12.5px}
+.ramp .skip{color:var(--dim);font-weight:500}
+.ramp .work{background:var(--raised)}
+.ramp .work .r-w{color:var(--accent)}
+.ramp>div:nth-last-child(-n+3){border-bottom:none}
+.grouphead{font-size:10.5px;font-weight:800;letter-spacing:.14em;color:var(--dim);margin:22px 0 9px}
+.ex{background:var(--surface);border:1px solid var(--line);border-radius:13px;padding:13px 14px;margin-bottom:9px}
+.ex-h{display:flex;gap:10px;align-items:flex-start}
+.ex-n{font-size:11px;font-weight:800;color:var(--dim);width:15px;flex:0 0 auto;padding-top:2px}
+.ex-t{flex:1;min-width:0}
+.ex-t h4{margin:0;font-size:15.5px;font-weight:700;letter-spacing:-.02em}
+.ex-t .mg{font-size:11.5px;color:var(--mute);margin-top:1px}
+.ex-p{text-align:right;flex:0 0 auto}
+.ex-p b{font-size:16px;font-weight:800;letter-spacing:-.02em;display:block}
+.ex-p span{font-size:11.5px;color:var(--mute)}
+.ex-memo{font-size:12.5px;color:var(--mute);margin-top:9px;padding-top:9px;border-top:1px solid var(--line);line-height:1.5}
+details{margin-top:9px}
+details summary{list-style:none;font-size:11.5px;font-weight:700;color:var(--dim);cursor:pointer;display:flex;align-items:center;gap:5px}
+details summary::-webkit-details-marker{display:none}
+details summary::after{content:"＋";font-size:12px}
+details[open] summary::after{content:"−"}
+details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
+.total{display:flex;justify-content:space-between;align-items:baseline;padding:12px 14px;
+  border:1px dashed var(--line);border-radius:13px;margin-top:12px}
+.total span{font-size:11px;font-weight:800;letter-spacing:.12em;color:var(--dim)}
+.total b{font-size:19px;font-weight:800}
+.notes{margin:22px 0 0}
+.notes h5{font-size:12.5px;font-weight:800;margin:0 0 8px}
+.notes ul{margin:0 0 18px;padding:0;list-style:none}
+.notes li{font-size:12.5px;color:var(--mute);line-height:1.65;padding-left:12px;position:relative;margin-bottom:5px}
+.notes li::before{content:"";position:absolute;left:0;top:9px;width:4px;height:1px;background:var(--dim)}
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:6px}
+.tbl th{font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--dim);text-align:right;
+  padding:0 0 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl th:first-child{text-align:left}
+.tbl td{padding:9px 0;border-bottom:1px solid rgba(51,59,69,.45);text-align:right;white-space:nowrap}
+.tbl td:first-child{text-align:left;white-space:normal;font-weight:600;padding-right:8px}
+.tbl td.wrap{white-space:normal;text-align:left;color:var(--mute);font-size:11.5px;padding-left:8px}
+.judge{font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:999px;border:1px solid}
+.j-ok{color:var(--mp);border-color:rgba(46,145,97,.45)}
+.j-lo{color:var(--bp);border-color:rgba(221,165,27,.45)}
+.j-bad{color:var(--sq);border-color:rgba(201,58,66,.45)}
+.footnote{font-size:11.5px;color:var(--dim);margin-top:18px;line-height:1.6}
+.rest{opacity:.42}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>운동 프로그램</h1><span class="num" id="ver"></span>
+    <div class="modes">
+      <button id="m-home" aria-pressed="true">재택</button>
+      <button id="m-back" aria-pressed="false">복귀</button>
+    </div>
+  </div>
+  <div class="weekbar" id="weekbar">
+    <button class="wk-step" id="wk-down" aria-label="이전 주">−</button>
+    <div class="wk-read"><b class="num" id="wk-num">1</b><i id="wk-of">WEEK</i></div>
+    <button class="wk-step" id="wk-up" aria-label="다음 주">+</button>
+  </div>
+  <div class="wk-track" id="wk-track"></div>
+  <nav id="nav"></nav>
+</header>
+<main id="app"></main>
+<script>
+const D = {"config": {"lifts": {"squat": {"ko": "스쿼트", "accent": "var(--sq)", "start": 37.5, "prev": 92.5, "inc": 5.0, "sets": 5}, "dead": {"ko": "데드리프트", "accent": "var(--dl)", "start": 42.5, "prev": 105.0, "inc": 5.0, "sets": 1}, "bench": {"ko": "벤치프레스", "accent": "var(--bp)", "start": 20.0, "prev": 47.25, "inc": 2.25, "sets": 5}, "press": {"ko": "밀리터리 프레스", "accent": "var(--mp)", "start": 20.0, "prev": 40.0, "inc": 1.25, "sets": 3}}, "weeks": 12, "week": 1}, "home": {"월": {"t": "가슴", "sub": "흉근(중하부) · 흉근(상부) · 18세트", "ex": [{"n": 1, "name": "벤치프레스 (본세트)", "mg": "흉근(중하부)", "w": "위 참조", "s": 5, "r": "5", "memo": "현재 최우선 종목. 주당 1.25~2.25kg 마이크로로딩", "alt": "스미스 벤치프레스 (궤도 고정 — 보조자 없이 한계까지) / 체스트 프레스 머신 (같은 이유) / 플로어 프레스 (어깨가 아플 때, 하강 깊이 제한)", "ind": "삼두·전면삼각"}, {"n": 2, "name": "덤벨 프레스", "mg": "흉근(중하부)", "w": "20~24", "s": 3, "r": "8~12", "memo": "바벨이 못 쓰는 구간 — 가슴 아래까지 내려가고 좌우 독립. 벤치 직접 보조", "alt": "해머스트렝스 체스트 프레스 (좌우 독립 + 궤도 고정) / 케이블 체스트 프레스 (전 구간 장력) / 스미스 벤치는 대체 불가 — 좌우 독립이 사라짐", "ind": "삼두"}, {"n": 3, "name": "인클라인 벤치프레스", "mg": "흉근(상부)", "w": "40~45", "s": 3, "r": "8~10", "memo": "", "alt": "인클라인 스미스 프레스 / 인클라인 덤벨 프레스 (가동범위 ↑) / 인클라인 체스트 프레스 머신", "ind": "삼두"}, {"n": 4, "name": "인클라인 덤벨 플라이", "mg": "흉근(상부)", "w": "12~15", "s": 4, "r": "10~12", "memo": "플랫 플라이에서 변경 — 세트 수 그대로 상부로 비중 이동", "alt": "케이블 크로스오버 (아래→위 방향, 전 구간 장력) / 펙덱 플라이 (등받이를 눕혀 인클라인 각으로) / 인클라인 머신 플라이", "ind": ""}, {"n": 5, "name": "딥스", "mg": "흉근(중하부)", "w": "맨몸", "s": 3, "r": "8~10", "memo": "상체 앞으로 기울여 흉근 비중 확보", "alt": "어시스트 딥스 머신 (개수가 안 나올 때) / 디클라인 덤벨 프레스 / 딥스가 쉬워지면 벨트로 중량 추가", "ind": "삼두"}], "groups": null, "total": 18, "main": "bench", "notes": [["구성 근거", ["스쿼트 대비 벤치 비율이 약 2:1 (통상 1.3:1). 프레스는 정상 범위이므로 수평 프레싱이 특정적으로 약함.", "흉근 상/중/하를 각각 독립 근육군으로 취급하지 않는다. 하나의 근육이며 프레스마다 전체가 함께 수축한다.", "원본 6종목 24세트가 부푼 원인이 이 과잉 분할이었다. 상부(쇄골지)만 따로 챙기면 충분.", "실질: 흉근 중하부 8~9세트 / 흉근 상부 9~10세트 (플랫 벤치가 상부에도 일부 기여)"]], ["덤벨 프레스 추가 (2025 재편)", ["세트 수 때문이 아니라 궤도 때문. 기존 4종목은 벤치·인클라인벤치·딥스 모두 손 위치가 고정된 궤도였다.", "덤벨은 봉이 가슴에 닿는 지점보다 아래까지 내려가 늘어난 구간의 가동범위가 더 나온다.", "좌우 독립이라 약한 쪽이 강한 쪽에 묻히지 않는다.", "벤치가 스쿼트 대비 2:1로 처진 현 상태에서, 약점 종목에 자원을 더 배분하는 성격의 추가.", "덤벨 플라이 추가는 보류 — 인클라인 플라이 4세트로 이미 충분. 플랫 각도가 아쉬우면 몇 주 단위로 번갈아 할 것.", "점검 기준: 벤치 5×5가 계속 채워지면 유지. 무너지기 시작하면 덤벨 프레스를 3→2세트로 내리거나 인클라인 벤치와 격주 운용."]]], "pre": [["웜업 — 회전근개 (세트 카운트 제외)", ["케이블 외회전 2세트 × 12~15회. 팔꿈치 90도로 접어 옆구리에 붙이고 바깥으로만 회전.", "매우 가볍게 — 2.5~5kg. 무거우면 광배와 후면 삼각근이 대신 일하며 목적을 잃는다.", "벤트오버 레터럴은 수평 외전이지 외회전이 아니다. 후면 삼각근은 자라도 극하근·소원근은 거의 안 쓴다.", "대체: 페이스풀(마지막에 외회전 추가) / 밴드 외회전 / 사이드 라잉 덤벨 외회전", "근비대 항목이 아니라 관절 준비 항목이므로 세트 합계에 넣지 않는다."]]]}, "화": {"t": "어깨", "sub": "삼각근(전면) · 삼각근(측면) · 삼각근(후면) · 승모(하부) · 22세트", "ex": [{"n": 1, "name": "밀리터리 프레스 (본세트)", "mg": "삼각근(전면)", "w": "위 참조", "s": 3, "r": "5", "memo": "팔꿈치 다 내리지 말 것 (부상 유발)", "alt": "스미스 오버헤드 프레스 / 숄더 프레스 머신 / 덤벨 숄더 프레스 (가동범위 ↑, 좌우 독립) / 아놀드 프레스", "ind": "삼두"}, {"n": 2, "name": "레터럴 레이즈", "mg": "삼각근(측면)", "w": "8~10", "s": 4, "r": "12~15", "memo": "", "alt": "케이블 레터럴 레이즈 (전 구간 장력 — 덤벨의 아래 구간 무저항 문제 해결) / 레터럴 레이즈 머신 / 인클라인 벤치에 옆으로 누워서 하는 라잉 레터럴", "ind": ""}, {"n": 3, "name": "벤트오버 레터럴 레이즈", "mg": "삼각근(후면)", "w": "8~10", "s": 4, "r": "12~15", "memo": "", "alt": "리버스 펙덱 (자세 유지가 쉬워 후면에 집중됨 — 사실상 상위 호환) / 케이블 리버스 플라이 / 인클라인 벤치에 엎드려 덤벨 리어델트 레이즈", "ind": ""}, {"n": 4, "name": "업라이트 로우 (스미스)", "mg": "삼각근(측면)", "w": "15", "s": 3, "r": "12", "memo": "그립 넓게 — 좁으면 승모 운동이 되고 어깨 충돌 위험", "alt": "케이블 업라이트 로우 / 덤벨 업라이트 로우 / EZ바 업라이트 로우 (손목이 편함). 어느 쪽이든 그립은 넓게", "ind": "승모"}, {"n": 5, "name": "30도 인클라인 로우", "mg": "삼각근(후면)", "w": "12~15", "s": 3, "r": "12", "memo": "", "alt": "시티드 케이블 로우 (와이드 그립, 높은 위치로 당기기) / 리버스 펙덱 / 페이스풀", "ind": "광배"}, {"n": 6, "name": "원암 사이드 레터럴 레이즈", "mg": "삼각근(측면)", "w": "8~10", "s": 3, "r": "10~12", "memo": "케이블 우선. 없으면 랙 잡고 몸을 반대로 기울여 덤벨로", "alt": "케이블 원암 레터럴 레이즈 (최우선 — 이 종목의 목적에 가장 부합) / 원암 레터럴 레이즈 머신", "ind": ""}, {"n": 7, "name": "프론 Y 레이즈", "mg": "승모(하부)", "w": "2~5", "s": 2, "r": "12~15", "memo": "벤트오버 레터럴과 같은 인클라인 벤치 — 세팅 그대로 이어서. 수요일과 나눠 주 2회", "alt": "케이블 Y 레이즈 / 페이스풀 (마지막에 견갑골 하강) / 프론 스윔. 무게는 어느 쪽이든 매우 가볍게", "ind": "후면 삼각근"}], "groups": null, "total": 22, "main": "press", "notes": [["구성 근거", ["원본 9종목의 전/측/후면 3분할 구조 자체는 타당했다. 종목 수만 줄이고 구조는 유지.", "후면 삼각근은 프레스로 자라지 않는 부위 — 반드시 별도로 센다.", "전면 삼각근은 프레스 + 벤치 + 딥스 간접으로 충분. 프론트 레이즈 불필요.", "전날 벤치 여파로 프레스 무게가 덜 나올 수 있음. 보수적으로 잡고 벤치에 우선순위를 둘 것."]], ["측면 삼각근 보강 (7 → 10세트)", ["덤벨 레터럴 레이즈는 팔이 내려간 구간에서 모멘트 암이 거의 0 — 아래 구간에 저항이 안 걸린다.", "원암은 몸을 반대로 기울일 수 있어 늘어난 위치부터 부하가 걸린다. 같은 운동이 아니므로 중복이 아님.", "세트를 더 붙이는 것보다 각도를 하나 더 넣는 쪽이 유효. 원본 어깨 파일에 있던 종목을 복원한 것.", "측면 삼각근은 간접 자극이 0인 부위 — 프레스는 전면만 키운다. 직접 세트로만 채워야 함."]]], "pre": [["웜업 — 회전근개 (세트 카운트 제외)", ["케이블 외회전 2세트 × 12~15회. 팔꿈치 90도로 접어 옆구리에 붙이고 바깥으로만 회전.", "매우 가볍게 — 2.5~5kg. 무거우면 광배와 후면 삼각근이 대신 일하며 목적을 잃는다.", "벤트오버 레터럴은 수평 외전이지 외회전이 아니다. 후면 삼각근은 자라도 극하근·소원근은 거의 안 쓴다.", "대체: 페이스풀(마지막에 외회전 추가) / 밴드 외회전 / 사이드 라잉 덤벨 외회전", "근비대 항목이 아니라 관절 준비 항목이므로 세트 합계에 넣지 않는다."]]]}, "수": {"t": "등", "sub": "기립근 · 광배 · 승모(하부) · 21세트", "ex": [{"n": 1, "name": "데드리프트 (본세트)", "mg": "기립근", "w": "위 참조", "s": 1, "r": "5", "memo": "주 1회. 다음 목표 107.25", "alt": "트랩바 데드리프트 (요추 전단력 ↓ — 허리가 부담될 때) / 랙풀 (무릎 위에서 시작, 가동범위 축소) / 스모 데드리프트", "ind": "광배·햄스트링·둔근"}, {"n": 2, "name": "바벨 로우 (그립 번갈아)", "mg": "광배", "w": "50~60", "s": 4, "r": "8~10", "memo": "수평 당기기. 광배 아래쪽 섬유 + 중부 승모. 매 세트 좁게·넓게 번갈아", "alt": "체스트 서포티드 로우 · 티바 로우 (가슴을 받쳐 허리 부담 제거 — 데드 다음 종목으로 이상적) / 시티드 케이블 로우 / 덤벨 로우 (좌우 독립, 집중) / 펜들레이 로우 (매 회 바닥에서 재시작)", "ind": "중부승모·이두"}, {"n": 3, "name": "스캡 풀업", "mg": "승모(하부)", "w": "맨몸", "s": 3, "r": "8~10", "memo": "친업 직전 배치. 팔은 편 채 견갑골만 아래로 — 순수 견갑골 하강이라 광배에 묻히지 않음", "alt": "스캡 랫풀다운 (매달리기가 힘들 때, 같은 동작을 앉아서) / 어시스트 풀업 머신에서 스캡 풀업 / 링 또는 바에 매달려 정지 3초", "ind": "전거근"}, {"n": 4, "name": "친업 (어시스트 가능)", "mg": "광배", "w": "맨몸", "s": 4, "r": "6~8", "memo": "수직 당기기. 광배 위쪽 섬유 비중이 큼", "alt": "어시스트 풀업 머신 (개수가 안 나올 때) / 뉴트럴 그립 친업 (팔꿈치가 편함) / 랫풀다운으로 대체 시 수직 세트가 한쪽에 몰리니 주의", "ind": "이두"}, {"n": 5, "name": "랫풀다운", "mg": "광배", "w": "—", "s": 3, "r": "8~12", "memo": "덤벨 로우에서 교체 — 수직 당기기 보강. 친업이 힘든 날의 무게 조절 수단도 됨", "alt": "원암 랫풀다운 (좌우 독립) / 뉴트럴 그립 랫풀다운 / 케이블 풀오버 (이두 개입 최소, 광배 고립)", "ind": "이두"}, {"n": 6, "name": "백 익스텐션", "mg": "기립근", "w": "20", "s": 3, "r": "12", "memo": "", "alt": "45도 하이퍼익스텐션 벤치 / 리버스 하이퍼 / 굿모닝 (중량 가능하나 허리 부담 ↑)", "ind": "둔근·햄스트링"}, {"n": 7, "name": "프론 Y 레이즈", "mg": "승모(하부)", "w": "2~5", "s": 3, "r": "12~15", "memo": "인클라인 벤치에 엎드려 Y자로. 화요일에 2세트 더 — 주 2회로 나눠 배치. 매우 가볍게", "alt": "케이블 Y 레이즈 / 페이스풀 (높은 위치에서 얼굴로, 마지막에 견갑골 하강) / 프론 스윔. 무게는 어느 쪽이든 매우 가볍게", "ind": "후면 삼각근"}], "groups": null, "total": 21, "main": "dead", "notes": [["구성 근거", ["루마니안 데드리프트를 하체날로 이동. 원본에 '등 전체'로 분류돼 있었으나 실제로는 햄스트링 운동.", "옮기면서 등날 척추 부하도 함께 감소.", "펜들레이 데드 삭제 (데드 + 바벨로우와 중복). 덤벨 시러그 삭제 (로우가 승모를 커버).", "원본은 등 9종목 36세트였다. 척추 부하가 한 세션에 과도하게 몰려 있었음."]], ["하부 승모 보강", ["승모근은 상·중·하부가 서로 다른 방향으로 견갑골을 움직인다 — 광배 상/하와 달리 실제로 갈라 봐야 하는 근육.", "상부는 올리고(시러그), 중부는 모으고(로우), 하부는 내린다(견갑골 하강).", "기존 프로그램에 견갑골을 아래로 내리는 동작이 전무했다.", "프론 Y 레이즈는 매우 가볍게 — 2~5kg. 무게를 올리면 상부 승모가 대신 일하며 목적을 잃는다.", "하루 종일 앉아 있으면 견갑골이 올라가고 앞으로 말린다. 이 동작은 그 자세의 정확한 반대편.", "교체 전: 수직 4(친업) : 수평 7(바벨로우·덤벨로우) — 수평으로 기울어 있었음", "교체 후: 수직 7(친업·랫풀다운) : 수평 4(바벨로우) — 세트 총량은 11로 동일", "등에서 실제로 갈라 봐야 하는 것은 광배 상/하가 아니라 승모·능형근이다 (견갑골 동작이라 광배가 대신 못 함).", "중부 승모·능형근은 바벨 로우가 어느 정도 커버. 하부 승모(견갑골 하강)는 여전히 비어 있음.", "보강 완료 (v13): 스캡 풀업 3세트 추가 + 프론 Y 레이즈를 화요일과 나눠 주 2회. 직접 3 → 8세트."]], ["스캡 풀업을 넣은 이유 (v13)", ["하부 승모는 팔이 높이 올라간 각도에서만 제대로 동원된다. 로우 · 풀다운 자세에서는 그 각도가 안 나온다.", "친업 · 랫풀다운의 견갑골 하강은 동작 개시에만 잠깐 쓰이고 이후 부하는 광배가 가져간다 — 간접 추정을 5 → 3으로 하향한 이유.", "스캡 풀업은 팔을 편 채 견갑골만 내리는 동작이라 광배가 개입할 여지가 없다. 친업 직전에 붙이면 기구 이동도 없다.", "부수 효과: 매달린 상태에서 견갑골이 올라간 채 당기기 시작하면 어깨 충돌 위험이 있는데, 그 앞 단계를 따로 연습하게 된다.", "무게로 밀어붙일 수 없는 부위다. 과부하는 정지 2~3초 · 하강 3초 · 반복 수 확장으로 준다.", "자세 유지 근육이라 회복이 빠르다. 한 날 몰아넣는 것보다 화 · 수로 나누는 쪽이 낫다.", "전거근이 약하면 하부 승모를 키워도 견갑골이 제 위치로 안 간다 — 신경 쓰이면 웜업에 푸시업 플러스나 벽 슬라이드 2세트."]]], "pre": []}, "금": {"t": "하체", "sub": "대퇴사두 · 햄스트링 · 종아리 · 22세트", "ex": [{"n": 1, "name": "스쿼트 (본세트)", "mg": "대퇴사두", "w": "위 참조", "s": 5, "r": "5", "memo": "다음 목표 95. 점핑 스쿼트 2세트를 웜업 앞에 배치 가능", "alt": "스미스 스쿼트 (궤도 고정) / 핵 스쿼트 (대퇴사두 집중) / 프론트 스쿼트 / 벨트 스쿼트 (척추 부하 없음 — 9월 이후 유용)", "ind": "둔근·기립근"}, {"n": 2, "name": "루마니안 데드리프트", "mg": "햄스트링", "w": "70", "s": 4, "r": "8", "memo": "등날에서 이동. 3→4세트 증량", "alt": "덤벨 RDL (좌우 독립) / 스티프 레그드 데드리프트 / 케이블 풀스루 (허리 부담 최소) / 굿모닝", "ind": "둔근·기립근"}, {"n": 3, "name": "레그 프레스", "mg": "대퇴사두", "w": "—", "s": 3, "r": "8~12", "memo": "프론트 스쿼트에서 교체. 궤도 고정이라 대퇴사두가 확실히 한계까지 간다. 발판 위치는 중간 — 낮으면 무릎, 높으면 둔근·햄 비중", "alt": "핵 스쿼트 (대퇴사두에 더 집중) / 레그 익스텐션 (완전 고립 — 무릎 부담은 더 큼) / 프론트 스쿼트로 되돌리기", "ind": "둔근"}, {"n": 4, "name": "레그 컬", "mg": "햄스트링", "w": "—", "s": 4, "r": "10~12", "memo": "3→4세트 증량", "alt": "라잉 레그 컬 · 시티드 레그 컬 (시티드가 늘어난 구간을 더 씀) / 노르딕 햄 컬 (맨몸, 매우 어려움) / 스위스볼 레그 컬", "ind": ""}, {"n": 5, "name": "글룻 햄 라이즈", "mg": "햄스트링", "w": "맨몸", "s": 3, "r": "10", "memo": "신규 추가. 원본에 '대퇴근'으로 오분류돼 있던 종목", "alt": "노르딕 햄 컬 / 백 익스텐션에서 무릎을 편 채 햄스트링 강조 / 케이블 풀스루", "ind": "둔근"}, {"n": 6, "name": "카프 레이즈", "mg": "종아리", "w": "—", "s": 3, "r": "12~15", "memo": "원본에 종아리 종목이 전무했음", "alt": "스탠딩 카프 레이즈 머신 (무릎 편 상태 — 비복근) / 시티드 카프 레이즈 (무릎 굽힘 — 가자미근) / 레그 프레스 발판 끝에서 카프 레이즈 / 스미스 카프 레이즈", "ind": ""}], "groups": null, "total": 22, "main": "squat", "notes": [["삭제한 종목과 이유", ["쉬림프 스쿼트 — 스쿼트 변형 중복", "파워 스쿼트 (스모) — 스쿼트 변형 중복", "덤벨 런지 → 토요일 둔근날로 이동", "힙 쓰러스트 → 토요일 둔근날로 이동"]], ["레그 프레스 교체 (프론트 스쿼트 → 레그 프레스)", ["프론트 스쿼트는 상부 등과 코어 요구가 커서, 대퇴사두가 한계에 가기 전에 다른 부위가 먼저 나가는 경우가 많다.", "목적이 대퇴사두를 확실히 태우는 것이라면 궤도가 고정된 레그 프레스가 유효하다. 세트 수는 3세트로 동일.", "스쿼트가 이미 자유 궤도 · 코어 · 안정근을 전부 담당하므로, 보조에서까지 같은 요구를 반복할 이유가 적다.", "대신 잃는 것: 프론트 스쿼트의 상부 등 · 코어 자극. 스쿼트 5세트와 데드로 충분히 커버된다고 판단.", "9월 이후 활용: 현장 복귀 시 허리에 이미 하루치 부하가 깔린다. 그때는 바벨 스쿼트 세트를 줄이고 레그 프레스 비중을 늘려, 척추 축방향 부하 없이 하체 볼륨을 유지하는 것이 맞다.", "무릎을 끝까지 펴서 잠그지 말 것. 등과 골반은 시트에 붙인 채로 — 하강 시 골반이 말리면 요추가 굽는다."]]], "pre": []}, "토": {"t": "둔근 · 팔 · 복부", "sub": "서로 회복 경쟁이 없는 조합. 그 주 가장 가벼운 세션. 순서: 둔근 → 팔 → 복부 · 31세트", "ex": [], "groups": [["둔근", [{"n": 1, "name": "힙 쓰러스트", "mg": "둔근", "w": "50~60", "s": 3, "r": "8~12", "memo": "이 날의 메인. 무겁게", "alt": "힙 쓰러스트 머신 / 스미스 힙 쓰러스트 (바 고정으로 세팅이 쉬움) / 글룻 브릿지 (벤치 없이)", "ind": "햄스트링"}, {"n": 2, "name": "불가리안 스플릿 스쿼트", "mg": "둔근", "w": "15", "s": 3, "r": "10 (좌우)", "memo": "덤벨 런지로 대체 가능", "alt": "덤벨 런지 / 워킹 런지 / 스텝업 (박스 높이로 강도 조절) / 리버스 런지 (무릎 부담 ↓)", "ind": "대퇴사두"}, {"n": 3, "name": "케이블 힙 외전", "mg": "중둔근", "w": "—", "s": 3, "r": "12~15 (좌우)", "memo": "킥백(신전)에서 교체 — 둔근 8세트가 전부 신전이라 관상면 외전이 0이었음. 앉아 있으면 대둔근보다 중둔근이 먼저 잠든다", "alt": "밴드 몬스터 워크 / 사이드 라잉 힙 외전 (맨몸, 가장 쉬움) / 힙 어브덕션 머신 / 스탠딩 케이블 외전. 상체를 기울여 반동 쓰지 말 것", "ind": ""}]], ["팔", [{"n": 4, "name": "바벨 컬 (또는 해머 컬)", "mg": "이두", "w": "30~35", "s": 3, "r": "8~12", "memo": "이두 3세트가 상한", "alt": "EZ바 컬 (손목이 편함) / 케이블 컬 (전 구간 장력) / 인클라인 덤벨 컬 (늘어난 구간을 씀 — 이두 보강 시 1순위) / 프리처 컬 (반동 차단) / 해머 컬 (전완 상완요골근 동시)", "ind": "전완"}, {"n": 5, "name": "라잉 트라이셉스 익스텐션", "mg": "삼두", "w": "30~35", "s": 3, "r": "8~12", "memo": "삼두 3세트가 상한", "alt": "케이블 푸시다운 (가장 무난) / 오버헤드 케이블 익스텐션 (늘어난 구간을 씀) / 클로즈그립 벤치프레스 (중량 가능) / 딥스 머신", "ind": ""}, {"n": 6, "name": "리버스 리스트 컬", "mg": "전완", "w": "10", "s": 3, "r": "15", "memo": "손목 신근. 타이핑으로 약해지는 쪽이라 비중을 더 준다", "alt": "케이블 리버스 리스트 컬 / 리버스 EZ바 컬 (상완요골근까지) / 덤벨로 한 손씩", "ind": ""}, {"n": 7, "name": "리스트 컬", "mg": "전완", "w": "10", "s": 2, "r": "15", "memo": "손목 굴근. 원본 슈퍼세트 파일의 대항쌍 복원", "alt": "덤벨 리스트 컬 (한 손씩) / 케이블 리스트 컬 / 바를 등 뒤로 잡고 비하인드백 리스트 컬", "ind": ""}]], ["복부", [{"n": 8, "name": "행잉 레그 레이즈", "mg": "복부", "w": "맨몸", "s": 3, "r": "10~15", "memo": "", "alt": "캡틴 체어 레그 레이즈 (그립이 먼저 지칠 때) / 인클라인 벤치 리버스 크런치 / 라잉 레그 레이즈 (가장 쉬움)", "ind": ""}, {"n": 9, "name": "중량 크런치", "mg": "복부", "w": "2.5", "s": 3, "r": "12", "memo": "", "alt": "케이블 크런치 (중량 조절이 쉬워 점진적 과부하에 최적 — 1순위) / 압도미널 크런치 머신 / 30도 인클라인 벤치 싯업", "ind": ""}, {"n": 10, "name": "플랭크", "mg": "복부", "w": "—", "s": 2, "r": "30초", "memo": "사이드 밴드로 대체 가능", "alt": "애브 롤아웃 (휠 또는 바벨) / 사이드 플랭크 (측면 추가) / 팔로프 프레스 (항회전)", "ind": ""}, {"n": 11, "name": "트렁크 로테이션", "mg": "복부", "w": "—", "s": 3, "r": "8~10 (좌우)", "memo": "복사근·회전. 원본 슈퍼세트 파일에 있던 종목. 케이블 우드촙으로 대체 가능", "alt": "케이블 우드촙 (위→아래 / 아래→위) / 러시안 트위스트 / 팔로프 프레스 / 덤벨 사이드 밴드 (측굴 — 허리 측면 부담 있음)", "ind": ""}]]], "total": 31, "main": null, "notes": [["구성 근거", ["이두 3 / 삼두 3이 상한. 벤치·프레스·로우·친업에서 간접 세트가 계속 들어옴.", "전용 날을 만들면 종목이 불어나기 쉬운데, 주 26~28세트 → 6~8세트가 이번 정리의 핵심.", "둔근은 하루 종일 앉아 있으면 가장 먼저 잠드는 근육. 몸매가 아니라 앉은 시간 상쇄 목적.", "하체(금) 다음날 배치 — 데드(수) 다음날은 피할 것. 둔근이 이미 소모된 상태라 힙 쓰러스트가 안 나옴."]], ["전완 · 복부 보강", ["전완: 리스트 컬 + 리버스 리스트 컬은 손목 굴근/신근 대항쌍. 원본 슈퍼세트 파일에 한 쌍으로 있던 구성.", "타이핑을 종일 하면 굴근은 짧아지고 신근만 약해진다 — 그래서 리버스 3 / 리스트 2로 비대칭 배분.", "복부: 기존 구성은 굴곡(레그레이즈·크런치)과 항신전(플랭크)뿐. 회전이 통째로 비어 있었다.", "트렁크 로테이션은 세트 수보다 빠진 움직임 패턴을 메우는 것이 목적.", "덤벨 사이드 밴드도 원본에 있으나, 허리 측면에 무게를 직접 얹어 부담이 크므로 회전을 우선."]]], "pre": []}, "목": {"t": "휴식", "sub": "", "rest": true}, "일": {"t": "휴식", "sub": "", "rest": true}}, "back": {"화": {"t": "상체 밀기", "sub": "현장 일이 채워주지 않는 유일한 영역. 감축의 예외 — 재택 버전과 거의 동일하게 유지한다. · 19세트", "ex": [{"n": 1, "name": "벤치프레스", "mg": "흉근(중하부)", "w": "복귀 시 재설정", "s": 5, "r": "5", "memo": "최우선 종목. 현장 복귀 후에도 유지", "alt": "스미스 벤치 / 체스트 프레스 머신", "ind": ""}, {"n": 2, "name": "덤벨 프레스", "mg": "흉근(중하부)", "w": "—", "s": 3, "r": "8~12", "memo": "좌우 독립 + 가동범위", "alt": "해머스트렝스 체스트 프레스", "ind": ""}, {"n": 3, "name": "인클라인 벤치프레스", "mg": "흉근(상부)", "w": "—", "s": 3, "r": "8~10", "memo": "", "alt": "인클라인 스미스 / 인클라인 덤벨 프레스", "ind": ""}, {"n": 4, "name": "레터럴 레이즈", "mg": "삼각근(측면)", "w": "8~10", "s": 4, "r": "12~15", "memo": "간접 자극이 0인 부위 — 직접 세트로만 채워짐", "alt": "케이블 레터럴 레이즈", "ind": ""}, {"n": 5, "name": "벤트오버 레터럴 레이즈", "mg": "삼각근(후면)", "w": "8~10", "s": 4, "r": "12~15", "memo": "현장 자세가 앞으로 말리므로 오히려 더 필요해짐", "alt": "리버스 펙덱", "ind": ""}], "groups": null, "total": 19, "main": null, "notes": [["배치 이유", ["다음이 12시간 근무 구간(수·목 또는 목·금)인데, 프레싱은 현장 일이 쓰지 않는 영역이라 겹치지 않는다.", "여기에 등이나 하체를 두면 12시간 근무일을 망친다. 이 자리는 상체 밀기 전용.", "실패지점은 3~4회 남기고 종료. 재택 버전(2~3회)보다 한 단계 더 보수적으로."]]], "pre": []}, "토": {"t": "하체", "sub": "다음날 일요일이 완충. 다만 일요일에 데드가 있으므로 기립근 부하를 의도적으로 낮춘다. · 15세트", "ex": [{"n": 1, "name": "스쿼트", "mg": "대퇴사두", "w": "복귀 시 재설정", "s": 3, "r": "5", "memo": "재택 5×5 → 3×5로 감축. 서 있기·걷기로 하체 볼륨이 이미 누적됨", "alt": "레그 프레스 (허리 부담 시 1순위) / 스미스 스쿼트", "ind": ""}, {"n": 2, "name": "루마니안 데드리프트", "mg": "햄스트링", "w": "—", "s": 3, "r": "8", "memo": "다음날 데드가 있으므로 무게는 보수적으로", "alt": "케이블 풀스루 (허리 부담 최소)", "ind": ""}, {"n": 3, "name": "레그 컬", "mg": "햄스트링", "w": "—", "s": 3, "r": "10~12", "memo": "척추 부하 없음", "alt": "라잉 / 시티드 레그 컬", "ind": ""}, {"n": 4, "name": "카프 레이즈", "mg": "종아리", "w": "—", "s": 3, "r": "12~15", "memo": "", "alt": "스탠딩 / 시티드 카프 레이즈 머신", "ind": ""}, {"n": 5, "name": "밀리터리 프레스", "mg": "삼각근(전면)", "w": "복귀 시 재설정", "s": 3, "r": "5", "memo": "수직 프레싱 — 현장 일이 채우지 않는 영역", "alt": "숄더 프레스 머신 / 덤벨 숄더 프레스", "ind": ""}], "groups": null, "total": 15, "main": null, "notes": [["허리가 부담되면", ["스쿼트를 레그 프레스로 교체하면 기립근이 완전히 빠져 다음날 데드가 온전히 나온다.", "토·일 연속은 이상적이지 않으나 이 근무 스케줄에서는 다른 선택지가 없다. 스쿼트를 3×5로 낮춘 것이 그 보정.", "스쿼트(토) → 데드(일) 순서가 그 반대보다 낫다. 데드 다음날 스쿼트는 허리가 받쳐주지 않는다."]]], "pre": []}, "일": {"t": "등", "sub": "완전 휴무일이라 회복된 상태에서 시작하고 하루가 통째로 남는다. 데드리프트는 반드시 이 날. · 13세트", "ex": [{"n": 1, "name": "데드리프트", "mg": "기립근", "w": "90~95에서 재시작", "s": 1, "r": "5", "memo": "재택 105kg에서 하향. 복귀 첫 몇 주는 적응 기간 — 여기서 무리하면 확실히 탈이 난다", "alt": "트랩바 데드 (요추 전단력 ↓) / 랙풀", "ind": ""}, {"n": 2, "name": "바벨 로우", "mg": "광배", "w": "—", "s": 3, "r": "8~10", "memo": "재택 4세트 → 3세트", "alt": "체스트 서포티드 로우 · 티바 로우 (허리 부담 제거)", "ind": ""}, {"n": 3, "name": "친업", "mg": "광배", "w": "맨몸", "s": 3, "r": "6~8", "memo": "재택 4세트 → 3세트", "alt": "어시스트 풀업 머신 / 랫풀다운", "ind": ""}, {"n": 4, "name": "랫풀다운", "mg": "광배", "w": "—", "s": 3, "r": "8~12", "memo": "수직 당기기 유지", "alt": "원암 랫풀다운 / 케이블 풀오버", "ind": ""}, {"n": 5, "name": "프론 Y 레이즈", "mg": "승모(하부)", "w": "2~5", "s": 3, "r": "12~15", "memo": "현장 자세가 견갑골을 올리고 앞으로 말므로 유지", "alt": "케이블 Y 레이즈 / 페이스풀", "ind": ""}], "groups": null, "total": 13, "main": null, "notes": [["데드리프트 운용 규칙", ["무게는 재택 105kg을 그대로 이어가지 말 것. 90~95kg에서 재시작해 다시 올린다.", "다음날(월)이 8시간 근무라 완충이 하루뿐이다. 주 1회, 1세트를 넘기지 않는다.", "허리가 무거운 주에는 트랩바로 바꾸거나 건너뛴다. 건너뛰는 것이 규율이지 나태가 아니다."]], ["등 볼륨을 유지한 이유", ["8시간 근무일 저녁이라면 등은 잘라야 하지만, 완전 휴무일이면 얘기가 다르다.", "광배 9세트 + 현장 일의 상시 부하 = 실질은 충분. 재택 버전 11세트에서 소폭만 감축했다.", "단, 12시간 근무일 바로 다음날이 일요일이 되는 주에는 데드를 빼거나 트랩바로 대체할 것."]]], "pre": []}}, "check": [["흉근(상부)", 7, 3, 10, "ok", "충분", "플랫 벤치 5세트가 쇄골지에도 일부 기여"], ["흉근(중하부)", 11, 3, 14, "ok", "충분", "인클라인 6세트가 흉늑지에도 일부 기여"], ["광배", 11, 0, 11, "ok", "충분", "데드리프트 간접"], ["승모(하부)", 8, 3, 11, "ok", "충분", "친업 · 랫풀다운의 견갑골 하강 — 동작 개시에만 관여하므로 하향 (5 → 3)"], ["승모(중부)·능형근", 0, 11, 11, "ok", "충분", "바벨 로우 4 · 30도 인클라인 로우 3 · 벤트오버 레터럴 4 — 전부 견갑골 후인. 직접 종목은 없으므로 로우를 빼면 이 칸도 함께 내릴 것"], ["기립근", 4, 7, 11, "ok", "충분", "스쿼트 · RDL · 바벨로우"], ["삼각근(전면)", 3, 8, 11, "ok", "충분", "벤치 · 인클라인 · 딥스"], ["삼각근(측면)", 10, 0, 10, "ok", "충분", "—"], ["삼각근(후면)", 7, 3, 10, "ok", "충분", "바벨 로우 · 인클라인 로우"], ["대퇴사두", 8, 3, 11, "ok", "충분", "불가리안 스플릿 스쿼트"], ["햄스트링", 11, 2, 13, "ok", "충분", "데드리프트 · 힙 쓰러스트"], ["둔근", 6, 5, 11, "ok", "충분", "스쿼트 · RDL · 데드"], ["중둔근", 3, 5, 8, "lo", "하한", "불가리안 스플릿 스쿼트 · 스쿼트 · 런지의 관상면 안정화 (한 다리 지지 구간)"], ["종아리", 3, 0, 3, "bad", "보완 필요", "—"], ["이두", 3, 8, 11, "ok", "충분", "친업 · 바벨로우 · 덤벨로우"], ["삼두", 3, 9, 12, "ok", "충분", "벤치 · 프레스 · 딥스"], ["전완", 5, 6, 11, "ok", "충분", "데드 105kg · 로우 · 친업 그립"], ["복부", 11, 0, 11, "ok", "충분", "스쿼트 · 데드 코어 안정화"]], "plan": {"sub": "적용 시기: 재택 근무 기간 (~9월)  |  주 5회 / 1일 1세션 / 회당 55~70분", "rows": [["월", "가슴", 18], ["화", "어깨", 22], ["수", "등", 21], ["목", "휴식", 0], ["금", "하체", 22], ["토", "둔근 · 팔 · 복부", 31], ["일", "휴식", 0]], "total": 114, "notes": [["배치 논리", ["월·화·수 상체 연속 블록 — 삼두는 월·화에서, 이두는 수에서 예열되어 토요일에 마무리", "데드(수)와 스쿼트(금)는 목요일 휴식으로 분리 — 기립근 중복 방지", "하체(금) 바로 다음날 둔근(토) 연결", "화요일 프레스는 전날 벤치 여파로 무게가 덜 나옴. 이어가기 배치의 대가이며, 우선순위는 월요일 벤치"]], ["기구 선택 원리 — 각 시트 I열의 대체 종목 활용법", ["바벨: 가장 무겁게 칠 수 있다. 메인 리프트는 바벨을 기본으로 둔다.", "덤벨: 가동범위가 넓고 좌우가 독립적이다. 약한 쪽이 강한 쪽에 묻히지 않는다.", "머신: 궤도가 고정돼 안정근이 덜 필요하다. 목표 근육을 한계까지 밀어붙이기 좋고, 보조자 없이 안전하다.", "케이블: 전 가동범위에 장력이 일정하다. 덤벨이 저항을 못 거는 구간(예: 레터럴 레이즈의 아래쪽)을 메운다.", "대체는 자유롭게 하되, 근육군 열은 바꾸지 말 것 — 검산 시트가 그 열을 기준으로 세트를 집계한다.", "종목을 바꿔도 세트 수를 유지하면 검산 결과는 그대로다.", "기구가 비어 있거나 몸 상태가 다를 때 쓰라고 만든 열이다. 매주 바꿀 필요는 없다.", "같은 종목을 최소 4~6주는 유지해야 증량 추이를 읽을 수 있다."]]]}, "backPlan": {"sub": "12시간 근무 주 2회 (수·목 또는 목·금) · 나머지 8시간 · 토요일 오전 근무 · 일요일 휴무 · 훈련 주 3회 — 화 · 토 · 일", "rows": [["월", "8시간", "8시간", "휴식", 0], ["화", "8시간", "8시간", "상체 밀기", 19], ["수", "12시간", "8시간", "휴식", 0], ["목", "12시간", "12시간", "휴식", 0], ["금", "8시간", "12시간", "휴식", 0], ["토", "오전", "오전", "하체", 15], ["일", "휴무", "휴무", "등", 13]], "total": 47, "notes": [["요일 선정 논리", ["12시간 근무가 수·목 또는 목·금으로 걸리므로, 양 패턴 모두 안전한 날은 월·화·토·일뿐이다.", "금요일은 패턴 A에서 8시간이지만 전날이 12시간이라 회복이 안 된 상태 — 제외.", "월요일은 일요일 훈련 직후라 회복일로 비운다.", "패턴이 목·금으로 바뀌어도 화·토·일은 영향받지 않는다. 이것이 이 조합을 고른 이유."]], ["종목 배치 논리", ["화요일에 상체 밀기 — 다음이 12시간 근무 구간. 프레싱은 현장 일이 쓰지 않는 영역이라 겹치지 않는다.", "여기에 등이나 하체를 두면 수·목 근무를 망친다.", "토요일에 하체 — 오전 근무 후이나 다음날 일요일이 완충.", "일요일에 등 + 데드 — 완전 휴무일이라 전날 밤 회복 후 시작하고 하루가 통째로 남는다.", "토(스쿼트) → 일(데드) 순서가 그 반대보다 낫다. 데드 다음날 스쿼트는 허리가 안 받쳐준다."]], ["재택 버전과의 차이", ["주 5회 108세트 → 주 3회 47세트 (56% 감축)", "등 · 하체 · 기립근 · 전완 감축 — 현장 일이 하루 종일 채우는 부위", "프레싱 · 어깨 후면 · 코어 유지 — 현장 일이 채우지 않는 부위", "팔 전용 종목 삭제 — 그립은 현장에서 온종일 쓰고, 이두·삼두는 프레싱 간접으로 충분"]]]}, "progressNotes": [["운용 규칙", ["공란 또는 O = 계획대로 증량. X = 그 중량을 다음 주에도 유지.", "1주차 중량은 '시작중량_설정' 시트 D열과 연동됨. 여기서 직접 수정하지 말 것.", "같은 종목에 X가 3주 연속이면 그 종목만 10% 디로드 후 재상승.", "증량폭을 종목별로 나눈 이유: 절대값이 같아도 부담이 전혀 다르다.", "20kg 프레스에 2.25kg은 11% 증가지만, 105kg 데드에 2.5kg은 2.4%다.", "균일 증량을 쓰면 작은 종목만 비현실적으로 빨리 오르고 큰 종목은 제자리에 머문다.", "하체 5kg이 커 보이지만 복귀 구간 첫 두세 달은 정상 범위다. 근력을 새로 만드는 것이 아니라 되찾는 구간이기 때문.", "이 속도가 버거워지면(X가 반복되면) 해당 칸 숫자를 절반으로 내린다."]]], "source": "운동프로그램_재편_v14.xlsx", "homeOrder": ["월", "화", "수", "목", "금", "토", "일"], "backOrder": ["화", "토", "일"]};
+
+const R = v => Math.round(v/2.5)*2.5;
+const fmt = v => (Math.round(v*1000)/1000).toString();
+const WEEKS = D.config.weeks;
+const LIFT = D.config.lifts;
+const workWeight = (k,w) => LIFT[k].start + LIFT[k].inc*(w-1);
+
+function ramp(work){
+  const pct=[.4,.6,.75,.9], reps=[5,5,3,2], sets=[2,1,1,1];
+  const raw = pct.map(p=>Math.max(20,R(work*p)));
+  return raw.map((w,i)=>({w:(i>0 && w<=raw[i-1])?null:w, reps:reps[i], sets:sets[i]}));
+}
+const PLATES=[{kg:25,c:"#C93A42",h:42,w:11},{kg:20,c:"#2B62B0",h:42,w:11},
+  {kg:15,c:"#DDA51B",h:40,w:9},{kg:10,c:"#2E9161",h:37,w:8},
+  {kg:5,c:"#E8E6E1",h:30,w:8},{kg:2.5,c:"#3D454F",h:24,w:7},
+  {kg:1.25,c:"#B9C0C8",h:19,w:6},{kg:1.125,c:"#8B95A1",h:16,w:6}];
+function load(total){
+  let side=(total-20)/2, out=[];
+  if(side<0.001) return out;
+  for(const p of PLATES){ while(side>=p.kg-0.0005){ out.push(p); side=Math.round((side-p.kg)*1000)/1000; } }
+  return out;
+}
+function stackHTML(total){
+  const ps=load(total);
+  const body = ps.length
+    ? ps.map(p=>`<div class="pl" style="background:${p.c};width:${p.w}px;height:${p.h}px"></div>`).join("")
+      + `<em>한쪽 ${fmt((total-20)/2)}kg</em>`
+    : `<em>빈 봉 20kg</em>`;
+  return `<div class="stack"><div class="sleeve"></div>${body}</div>`;
+}
+function liftCard(key,week){
+  const L=LIFT[key]; if(!L) return "";
+  const work=workWeight(key,week), rows=ramp(work);
+  const rp=rows.map(r=>`
+    <div class="r-w ${r.w?'':'skip'}">${r.w?fmt(r.w)+'<span style="font-size:11px;color:var(--mute)"> kg</span>':'생략'}</div>
+    <div class="r-x num">${r.reps}회</div><div class="r-x num">${r.sets}세트</div>`).join("");
+  return `<section class="lift" style="--accent:${L.accent}">
+    <div class="lift-top">
+      <div class="lift-name"><div class="eyebrow">MAIN LIFT</div><h3>${L.ko}</h3>
+        <p class="num">5년 전 ${fmt(L.prev)}kg · 본세트 5회 × ${L.sets}세트</p></div>
+      <div class="bigw"><b class="num">${fmt(work)}</b><i>kg</i></div>
+    </div>
+    <div class="bar"><div class="bar-label">한쪽 원판 구성</div>${stackHTML(work)}</div>
+    <div class="ramp">
+      <div class="h">웜업 램프</div><div class="h" style="text-align:right">반복</div><div class="h" style="text-align:right">세트</div>
+      ${rp}
+      <div class="work r-w">${fmt(work)}<span style="font-size:11px;color:var(--mute)"> kg</span></div>
+      <div class="work r-x num">5회</div><div class="work r-x num">${L.sets}세트</div>
+    </div></section>`;
+}
+const esc = t => String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;");
+function exHTML(e){
+  return `<article class="ex"><div class="ex-h">
+      <div class="ex-n num">${e.n}</div>
+      <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}</div></div>
+      <div class="ex-p"><b class="num">${e.s} × ${esc(e.r)}</b><span class="num">${esc(e.w)}</span></div></div>
+    ${e.memo?`<div class="ex-memo">${esc(e.memo)}</div>`:""}
+    ${e.alt?`<details><summary>대체 종목</summary><p>${esc(e.alt)}</p></details>`:""}</article>`;
+}
+const notesHTML = ns => !ns||!ns.length ? "" :
+  `<div class="notes">`+ns.map(([h,ls])=>`<h5>${esc(h)}</h5><ul>${ls.map(l=>`<li>${esc(l)}</li>`).join("")}</ul>`).join("")+`</div>`;
+
+function dayHTML(d,week){
+  if(d.rest) return `<h2 class="daytitle">${esc(d.t)}</h2><p class="daysub">${esc(d.sub||"휴식일")}</p>`;
+  const body = d.groups
+    ? d.groups.map(([g,list])=>`<div class="grouphead">${esc(g)}</div>`+list.map(exHTML).join("")).join("")
+    : `<div class="grouphead">운동 구성</div>`+d.ex.map(exHTML).join("");
+  return `<h2 class="daytitle">${esc(d.t)}</h2><p class="daysub">${esc(d.sub)}</p>
+    ${d.main?liftCard(d.main,week):""}${notesHTML(d.pre)}${body}
+    <div class="total"><span>세트 합계</span><b class="num">${d.total}</b></div>${notesHTML(d.notes)}`;
+}
+function checkHTML(){
+  return `<h2 class="daytitle">세트 검산</h2>
+  <p class="daysub">세트는 근육군 단위로 센다. 실질 = 직접 + 간접 추정.</p>
+  <table class="tbl"><thead><tr><th>근육군</th><th>직접</th><th>간접</th><th>실질</th><th>판정</th></tr></thead><tbody>
+  ${D.check.map(([m,dr,i,t,tag,v])=>`<tr><td>${esc(m)}</td><td class="num">${dr}</td>
+    <td class="num" style="color:var(--mute)">${i}</td><td class="num" style="font-weight:800">${t}</td>
+    <td><span class="judge j-${tag}">${esc(v)}</span></td></tr>`).join("")}
+  <tr><td style="font-weight:800">직접 세트 총계</td><td class="num" style="font-weight:800">${D.check.reduce((a,r)=>a+r[1],0)}</td><td colspan="3"></td></tr>
+  </tbody></table>
+  <div class="notes"><h5>간접 출처</h5><ul>${D.check.filter(r=>r[6]&&r[6]!=="—")
+    .map(r=>`<li><b style="color:var(--ink)">${esc(r[0])}</b> — ${esc(r[6])}</li>`).join("")}</ul></div>`;
+}
+function planHTML(){
+  const p=D.plan;
+  return `<h2 class="daytitle">주간 계획</h2><p class="daysub">${esc(p.sub)}</p>
+  <table class="tbl"><thead><tr><th>요일</th><th style="text-align:left">내용</th><th>세트</th></tr></thead><tbody>
+  ${p.rows.map(([d,c,n])=>`<tr class="${n?'':'rest'}"><td>${esc(d)}</td><td class="wrap">${esc(c)}</td><td class="num">${n||"—"}</td></tr>`).join("")}
+  <tr><td style="font-weight:800">합계</td><td></td><td class="num" style="font-weight:800">${p.total}</td></tr>
+  </tbody></table>${notesHTML(p.notes)}`;
+}
+function backPlanHTML(){
+  const p=D.backPlan;
+  return `<h2 class="daytitle">복귀 주간 계획</h2><p class="daysub">${esc(p.sub)}</p>
+  <table class="tbl"><thead><tr><th>요일</th><th>A</th><th>B</th><th style="text-align:left">훈련</th><th>세트</th></tr></thead><tbody>
+  ${p.rows.map(r=>`<tr class="${r[4]?'':'rest'}"><td>${esc(r[0])}</td>
+    <td class="num" style="color:var(--mute)">${esc(r[1])}</td><td class="num" style="color:var(--mute)">${esc(r[2])}</td>
+    <td class="wrap" style="font-weight:600;color:var(--ink)">${esc(r[3])}</td><td class="num">${r[4]||"—"}</td></tr>`).join("")}
+  <tr><td style="font-weight:800">합계</td><td colspan="3"></td><td class="num" style="font-weight:800">${p.total}</td></tr>
+  </tbody></table>${notesHTML(p.notes)}`;
+}
+function progressHTML(week){
+  const keys=Object.keys(LIFT), rows=[];
+  for(let w=1;w<=WEEKS;w++){
+    rows.push(`<tr style="${w===week?'background:var(--raised)':''}"><td class="num">${w}주</td>`+
+      keys.map(k=>`<td class="num">${fmt(workWeight(k,w))}</td>`).join("")+`</tr>`);
+  }
+  return `<h2 class="daytitle">증량 계획</h2>
+  <p class="daysub">목표 반복을 못 채운 주가 없다고 가정한 계획선. 실제 진행은 증량기록 시트가 결정한다.</p>
+  <table class="tbl"><thead><tr><th>주차</th>${keys.map(k=>`<th>${esc(LIFT[k].ko)}</th>`).join("")}</tr></thead>
+  <tbody>${rows.join("")}</tbody></table>
+  <div class="notes"><h5>주당 증량폭</h5><ul>${keys.map(k=>
+    `<li>${esc(LIFT[k].ko)} ${fmt(LIFT[k].inc)}kg</li>`).join("")}</ul></div>
+  ${notesHTML(D.progressNotes)}`;
+}
+
+let mode="home", week=D.config.week||1, tab=D.homeOrder[0];
+const tabsFor = m => (m==="home"
+  ? D.homeOrder.map(d=>[d,d]).concat([["plan","주간"],["prog","증량"],["check","검산"]])
+  : D.backOrder.map(d=>[d,d]).concat([["bplan","주간"],["check","검산"]]));
+
+function render(){
+  const nav=document.getElementById("nav");
+  nav.innerHTML=tabsFor(mode).map(([k,l])=>`<button data-k="${k}" aria-pressed="${k===tab}">${l}</button>`).join("");
+  nav.querySelectorAll("button").forEach(b=>b.onclick=()=>{tab=b.dataset.k;render();window.scrollTo({top:0});});
+  document.getElementById("weekbar").style.display = mode==="home"?"flex":"none";
+  document.getElementById("wk-track").style.display = mode==="home"?"flex":"none";
+  document.getElementById("wk-num").textContent=week;
+  document.getElementById("wk-of").textContent=`WEEK / ${WEEKS}`;
+  document.getElementById("wk-track").innerHTML=
+    Array.from({length:WEEKS},(_,i)=>`<span class="${i<week?'on':''}"></span>`).join("");
+  document.getElementById("wk-down").disabled=week<=1;
+  document.getElementById("wk-up").disabled=week>=WEEKS;
+  const set = mode==="home"?D.home:D.back;
+  let html;
+  if(tab==="check") html=checkHTML();
+  else if(tab==="plan") html=planHTML();
+  else if(tab==="prog") html=progressHTML(week);
+  else if(tab==="bplan") html=backPlanHTML();
+  else html = set[tab] ? dayHTML(set[tab],week) : planHTML();
+  document.getElementById("app").innerHTML = html +
+    `<p class="footnote">원본: ${esc(D.source)} · 중량은 시트와 동일한 계산식(MROUND 2.5kg, 웜업 40/60/75/90%)으로 산출됩니다.</p>`;
+  try{ localStorage.setItem("wk-prog", JSON.stringify({mode,week,tab})); }catch(e){}
+}
+document.getElementById("ver").textContent=(D.source.match(/v\d+/)||[""])[0];
+document.getElementById("wk-up").onclick=()=>{if(week<WEEKS){week++;render();}};
+document.getElementById("wk-down").onclick=()=>{if(week>1){week--;render();}};
+document.getElementById("m-home").onclick=()=>{mode="home";tab=D.homeOrder[0];
+  document.getElementById("m-home").setAttribute("aria-pressed","true");
+  document.getElementById("m-back").setAttribute("aria-pressed","false");render();};
+document.getElementById("m-back").onclick=()=>{mode="back";tab=D.backOrder[0];
+  document.getElementById("m-back").setAttribute("aria-pressed","true");
+  document.getElementById("m-home").setAttribute("aria-pressed","false");render();};
+try{
+  const st=JSON.parse(localStorage.getItem("wk-prog")||"null");
+  if(st&&st.mode){ mode=st.mode; week=Math.min(st.week||1,WEEKS); tab=st.tab||tab;
+    document.getElementById("m-home").setAttribute("aria-pressed",mode==="home");
+    document.getElementById("m-back").setAttribute("aria-pressed",mode==="back"); }
+}catch(e){}
+render();
+</script>
+</body>
+</html>

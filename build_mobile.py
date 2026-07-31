@@ -116,8 +116,42 @@ def barbell_icon(size):
     return _png(size, px)
 
 
-def write_pwa_assets(site):
-    """manifest와 아이콘을 배포 폴더에 쓴다. 아이콘은 내용이 고정이라 없을 때만 만든다."""
+# Chrome은 manifest만으로는 '홈 화면에 추가'(단순 바로가기)까지만 준다.
+# '앱 설치'로 뜨게 하려면 service worker가 있어야 하고, 덤으로 오프라인에서도 열린다.
+# 네트워크 우선 — 신호가 있으면 항상 최신을 보고, 끊기면 캐시로 떨어진다.
+# 워크북을 고칠 때마다 VERSION이 바뀌어 옛 캐시가 폐기되므로 낡은 표가 남지 않는다.
+SW_JS = """\
+const VERSION = "__VERSION__";
+const CACHE = "workout-" + VERSION;
+const ASSETS = ["./", "./index.html", "./manifest.webmanifest",
+                "./icon-192.png", "./icon-512.png"];
+
+self.addEventListener("install", e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS))
+                                .then(() => self.skipWaiting()));
+});
+
+self.addEventListener("activate", e => {
+  e.waitUntil(caches.keys()
+    .then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    .then(() => self.clients.claim()));
+});
+
+self.addEventListener("fetch", e => {
+  if (e.request.method !== "GET") return;
+  e.respondWith(
+    fetch(e.request).then(res => {
+      const copy = res.clone();
+      caches.open(CACHE).then(c => c.put(e.request, copy));
+      return res;
+    }).catch(() => caches.match(e.request).then(r => r || caches.match("./index.html")))
+  );
+});
+"""
+
+
+def write_pwa_assets(site, html):
+    """manifest·아이콘·service worker를 배포 폴더에 쓴다. 아이콘은 내용이 고정이라 없을 때만 만든다."""
     manifest = {
         "name": "운동 프로그램",
         "short_name": "운동",
@@ -143,7 +177,11 @@ def write_pwa_assets(site):
         if not p.exists():
             p.write_bytes(barbell_icon(px_size))
             made.append(p.name)
-    return made
+
+    import hashlib
+    version = hashlib.sha1(html.encode("utf-8")).hexdigest()[:12]
+    (site / "sw.js").write_text(SW_JS.replace("__VERSION__", version), encoding="utf-8")
+    return made, version
 
 
 def num(v, default=0):
@@ -405,10 +443,10 @@ def build(xlsx_path, out_path):
     site = Path(xlsx_path).resolve().parent / "docs"
     site.mkdir(exist_ok=True)
     (site / "index.html").write_text(html, encoding="utf-8")
-    made = write_pwa_assets(site)
+    made, version = write_pwa_assets(site, html)
 
     print(f"완료 → {out_path}")
-    print(f"       {site / 'index.html'}  (배포용)")
+    print(f"       {site / 'index.html'}  (배포용, 캐시버전 {version})")
     if made:
         print(f"       아이콘 생성: {', '.join(made)}")
     print(f"  요일 {len(data['homeOrder'])}일 · 주간 {data['plan']['total']}세트 "
@@ -433,6 +471,14 @@ TEMPLATE = r"""<!DOCTYPE html>
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
 <title>운동 프로그램</title>
+<script>
+/* file:// 로 연 로컬 사본에는 navigator.serviceWorker 가 없으므로 조용히 넘어간다 */
+if ("serviceWorker" in navigator) {
+  addEventListener("load", function () {
+    navigator.serviceWorker.register("sw.js").catch(function () {});
+  });
+}
+</script>
 <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
 :root{

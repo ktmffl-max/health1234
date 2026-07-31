@@ -67,6 +67,85 @@ def s(v):
     return str(v).strip()
 
 
+# ── 홈 화면 앱(PWA) 자산 ─────────────────────────────────────────
+# manifest가 있어야 폰이 이걸 웹페이지가 아니라 앱으로 취급한다.
+# 없으면 홈 화면에서 열어도 위에 주소창이 남는다.
+
+BG = (0x15, 0x18, 0x1C)      # --bg   본문 배경과 동일
+FG = (0xDD, 0xA5, 0x1B)      # --bp   벤치프레스 노랑. 어두운 배경에서 잘 보인다
+
+
+def _png(size, px):
+    """RGB 픽셀 함수를 8bit PNG 바이트로. 표준 zlib만 사용."""
+    import zlib, struct
+    raw = bytearray()
+    for y in range(size):
+        raw.append(0)                       # 필터 타입 None
+        for x in range(size):
+            raw.extend(px(x, y))
+
+    def chunk(tag, data):
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+            + chunk(b"IEND", b""))
+
+
+def barbell_icon(size):
+    """바벨 아이콘. 안드로이드가 원형으로 잘라내도 남도록 중앙 80% 안에 그린다."""
+    def rect(x0, y0, x1, y1):
+        return (x0 * size, y0 * size, x1 * size, y1 * size)
+
+    shapes = [
+        rect(0.16, 0.470, 0.84, 0.530),   # 바
+        rect(0.26, 0.330, 0.33, 0.670),   # 안쪽 원판 (좌)
+        rect(0.67, 0.330, 0.74, 0.670),   # 안쪽 원판 (우)
+        rect(0.20, 0.390, 0.25, 0.610),   # 바깥 원판 (좌)
+        rect(0.75, 0.390, 0.80, 0.610),   # 바깥 원판 (우)
+    ]
+
+    def px(x, y):
+        for x0, y0, x1, y1 in shapes:
+            if x0 <= x < x1 and y0 <= y < y1:
+                return FG
+        return BG
+
+    return _png(size, px)
+
+
+def write_pwa_assets(site):
+    """manifest와 아이콘을 배포 폴더에 쓴다. 아이콘은 내용이 고정이라 없을 때만 만든다."""
+    manifest = {
+        "name": "운동 프로그램",
+        "short_name": "운동",
+        "start_url": "./",
+        "scope": "./",
+        "display": "standalone",     # 주소창 없이 전체화면
+        "orientation": "portrait",
+        "background_color": "#15181C",
+        "theme_color": "#15181C",
+        "icons": [
+            {"src": "icon-192.png", "sizes": "192x192", "type": "image/png",
+             "purpose": "any maskable"},
+            {"src": "icon-512.png", "sizes": "512x512", "type": "image/png",
+             "purpose": "any maskable"},
+        ],
+    }
+    (site / "manifest.webmanifest").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    made = []
+    for px_size in (192, 512):
+        p = site / f"icon-{px_size}.png"
+        if not p.exists():
+            p.write_bytes(barbell_icon(px_size))
+            made.append(p.name)
+    return made
+
+
 def num(v, default=0):
     try:
         return float(v)
@@ -326,9 +405,12 @@ def build(xlsx_path, out_path):
     site = Path(xlsx_path).resolve().parent / "docs"
     site.mkdir(exist_ok=True)
     (site / "index.html").write_text(html, encoding="utf-8")
+    made = write_pwa_assets(site)
 
     print(f"완료 → {out_path}")
     print(f"       {site / 'index.html'}  (배포용)")
+    if made:
+        print(f"       아이콘 생성: {', '.join(made)}")
     print(f"  요일 {len(data['homeOrder'])}일 · 주간 {data['plan']['total']}세트 "
           f"· {data['config']['weeks']}주 계획")
     for row in data["check"]:
@@ -344,7 +426,12 @@ TEMPLATE = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#15181C">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="운동">
 <meta name="robots" content="noindex, nofollow">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
 <title>운동 프로그램</title>
 <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>

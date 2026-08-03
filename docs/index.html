@@ -128,6 +128,22 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .j-bad{color:var(--sq);border-color:rgba(201,58,66,.45)}
 .footnote{font-size:11.5px;color:var(--dim);margin-top:18px;line-height:1.6}
 .rest{opacity:.42}
+[data-lift]{cursor:pointer}
+.ex-w[data-exkey]{border-bottom:1px dotted var(--dim);cursor:pointer;padding-bottom:1px}
+.ex-w.edited{color:var(--bp);border-bottom-color:var(--bp)}
+.bigw.edited b{color:var(--bp)}
+.ovnote{display:block;font-size:10px;font-weight:700;color:var(--bp);margin-top:5px;line-height:1.3}
+.w-input{font:inherit;font-weight:700;background:var(--raised);color:var(--ink);
+  border:1px solid var(--dim);border-radius:8px;padding:5px 8px;width:96px;
+  text-align:right;font-size:16px}
+.bigw .w-input{width:120px;font-size:22px}
+.ovbox{margin-top:22px;border:1px dashed var(--bp);border-radius:13px;padding:13px 14px}
+.ovbox h5{font-size:12.5px;font-weight:800;margin:0;color:var(--bp)}
+.ovbox h5 span{font-weight:600;color:var(--mute);font-size:11px}
+.ovbox ul{margin:8px 0 11px;padding:0;list-style:none}
+.ovbox li{font-size:12.5px;color:var(--mute);line-height:1.65}
+.ovbox button{font:inherit;font-size:12px;font-weight:700;padding:7px 12px;border-radius:9px;
+  background:transparent;color:var(--sq);border:1px solid var(--sq);cursor:pointer}
 </style>
 </head>
 <body>
@@ -155,7 +171,26 @@ const R = v => Math.round(v/2.5)*2.5;
 const fmt = v => (Math.round(v*1000)/1000).toString();
 const WEEKS = D.config.weeks;
 const LIFT = D.config.lifts;
-const workWeight = (k,w) => LIFT[k].start + LIFT[k].inc*(w-1);
+
+/* ── 이 기기에서만 적용되는 중량 덮어쓰기 ─────────────────────────
+   엑셀 원본은 건드리지 않는다. {수정값, 그때의 엑셀값}을 localStorage에 두고,
+   엑셀 쪽 값이 바뀐 채 재배포되면 해당 덮어쓰기는 자동으로 버린다. */
+const OVK = "wk-ov";
+let OV = {lifts:{}, ex:{}};
+try{ const o=JSON.parse(localStorage.getItem(OVK)||"null"); if(o&&o.lifts&&o.ex) OV=o; }catch(e){}
+function exByKey(key){
+  const p=key.split("|"), day=(p[0]==="home"?D.home:D.back)[p[1]];
+  if(!day||day.rest) return null;
+  const all=(day.ex||[]).concat(day.groups?day.groups.reduce((a,g)=>a.concat(g[1]),[]):[]);
+  return all.find(x=>x.name===p[2])||null;
+}
+const saveOV = () => { try{ localStorage.setItem(OVK, JSON.stringify(OV)); }catch(e){} };
+let ovStale=false;
+for(const k in OV.lifts){ if(!LIFT[k]||LIFT[k].start!==OV.lifts[k].base){ delete OV.lifts[k]; ovStale=true; } }
+for(const k in OV.ex){ const e=exByKey(k); if(!e||e.w!==OV.ex[k].base){ delete OV.ex[k]; ovStale=true; } }
+if(ovStale) saveOV();
+const startOf = k => OV.lifts[k] ? OV.lifts[k].start : LIFT[k].start;
+const workWeight = (k,w) => startOf(k) + LIFT[k].inc*(w-1);
 
 function ramp(work){
   const pct=[.4,.6,.75,.9], reps=[5,5,3,2], sets=[2,1,1,1];
@@ -190,7 +225,8 @@ function liftCard(key,week){
     <div class="lift-top">
       <div class="lift-name"><div class="eyebrow">MAIN LIFT</div><h3>${L.ko}</h3>
         <p class="num">5년 전 ${fmt(L.prev)}kg · 본세트 5회 × ${L.sets}세트</p></div>
-      <div class="bigw"><b class="num">${fmt(work)}</b><i>kg</i></div>
+      <div class="bigw ${OV.lifts[key]?'edited':''}" data-lift="${key}"><b class="num">${fmt(work)}</b><i>kg</i>${
+        OV.lifts[key]?`<span class="ovnote">수정됨 · 엑셀 기준 ${fmt(LIFT[key].start+LIFT[key].inc*(week-1))}kg</span>`:""}</div>
     </div>
     <div class="bar"><div class="bar-label">한쪽 원판 구성</div>${stackHTML(work)}</div>
     <div class="ramp">
@@ -201,11 +237,14 @@ function liftCard(key,week){
     </div></section>`;
 }
 const esc = t => String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;");
-function exHTML(e){
+const escAttr = t => esc(t).replace(/"/g,"&quot;");
+function exHTML(e,prefix){
+  const key=prefix+"|"+e.name, ov=OV.ex[key];
+  const w=ov?ov.w:e.w, canEdit=e.w!=="위 참조";
   return `<article class="ex"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
       <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}</div></div>
-      <div class="ex-p"><b class="num">${e.s} × ${esc(e.r)}</b><span class="num">${esc(e.w)}</span></div></div>
+      <div class="ex-p"><b class="num">${e.s} × ${esc(e.r)}</b><span class="num ex-w ${ov?'edited':''}"${canEdit?` data-exkey="${escAttr(key)}"`:""}>${esc(w)}</span></div></div>
     ${e.memo?`<div class="ex-memo">${esc(e.memo)}</div>`:""}
     ${e.alt?`<details><summary>대체 종목</summary><p>${esc(e.alt)}</p></details>`:""}</article>`;
 }
@@ -214,9 +253,10 @@ const notesHTML = ns => !ns||!ns.length ? "" :
 
 function dayHTML(d,week){
   if(d.rest) return `<h2 class="daytitle">${esc(d.t)}</h2><p class="daysub">${esc(d.sub||"휴식일")}</p>`;
+  const prefix=mode+"|"+tab;
   const body = d.groups
-    ? d.groups.map(([g,list])=>`<div class="grouphead">${esc(g)}</div>`+list.map(exHTML).join("")).join("")
-    : `<div class="grouphead">운동 구성</div>`+d.ex.map(exHTML).join("");
+    ? d.groups.map(([g,list])=>`<div class="grouphead">${esc(g)}</div>`+list.map(e=>exHTML(e,prefix)).join("")).join("")
+    : `<div class="grouphead">운동 구성</div>`+d.ex.map(e=>exHTML(e,prefix)).join("");
   return `<h2 class="daytitle">${esc(d.t)}</h2><p class="daysub">${esc(d.sub)}</p>
     ${d.main?liftCard(d.main,week):""}${notesHTML(d.pre)}${body}
     <div class="total"><span>세트 합계</span><b class="num">${d.total}</b></div>${notesHTML(d.notes)}`;
@@ -266,6 +306,63 @@ function progressHTML(week){
   ${notesHTML(D.progressNotes)}`;
 }
 
+/* ── 중량 편집 UI ── 숫자를 탭 → 입력 → 확인(엔터·바깥 탭)으로 저장.
+   빈 값으로 확인하면 엑셀 값으로 되돌아간다. */
+function grabInput(el, value, numeric, onCommit){
+  if(el.querySelector("input")) return;
+  el.innerHTML=`<input class="w-input" type="text"${numeric?' inputmode="decimal"':''}`+
+    ` value="${escAttr(value)}" placeholder="—">`;
+  const inp=el.querySelector("input");
+  inp.focus(); inp.select();
+  let done=false;
+  const finish=commit=>{ if(done) return; done=true; if(commit) onCommit(inp.value.trim()); render(); };
+  inp.onblur=()=>finish(true);
+  inp.onkeydown=ev=>{ if(ev.key==="Enter") finish(true); else if(ev.key==="Escape") finish(false); };
+}
+function editLift(el){
+  const k=el.dataset.lift;
+  grabInput(el, fmt(workWeight(k,week)), true, v=>{
+    const n=parseFloat(v);
+    if(v===""){ delete OV.lifts[k]; }
+    else if(!isNaN(n)&&n>0){
+      // 이번 주 무게를 입력받아 시작중량을 역산 — 이후 주차·원판·웜업이 전부 따라온다
+      const start=n-LIFT[k].inc*(week-1);
+      if(Math.abs(start-LIFT[k].start)<0.001) delete OV.lifts[k];
+      else OV.lifts[k]={start:start, base:LIFT[k].start};
+    }
+    saveOV();
+  });
+}
+function editEx(el){
+  const key=el.dataset.exkey, e=exByKey(key);
+  if(!e) return;
+  const cur=OV.ex[key]?OV.ex[key].w:e.w;
+  grabInput(el, cur==="—"?"":cur, false, v=>{
+    if(!v||v===e.w) delete OV.ex[key];
+    else OV.ex[key]={w:v, base:e.w};
+    saveOV();
+  });
+}
+function ovHTML(){
+  const items=[];
+  for(const k in OV.lifts)
+    items.push(`${LIFT[k].ko} — 시작중량 ${fmt(OV.lifts[k].base)} → ${fmt(OV.lifts[k].start)}kg`);
+  for(const k in OV.ex){
+    const p=k.split("|");
+    items.push(`${p[0]==="back"?"복귀 ":""}${p[1]} · ${p[2]} — ${OV.ex[k].base} → ${OV.ex[k].w}`);
+  }
+  if(!items.length) return "";
+  return `<div class="ovbox"><h5>이 폰에서 수정한 값 <span>· 엑셀 원본은 그대로이니 나중에 옮겨 적으세요</span></h5>
+    <ul>${items.map(t=>`<li>${esc(t)}</li>`).join("")}</ul>
+    <button id="ov-reset">전부 엑셀 값으로 되돌리기</button></div>`;
+}
+function bindEdits(){
+  document.querySelectorAll("[data-lift]").forEach(el=>{ el.onclick=()=>editLift(el); });
+  document.querySelectorAll("[data-exkey]").forEach(el=>{ el.onclick=()=>editEx(el); });
+  const rb=document.getElementById("ov-reset");
+  if(rb) rb.onclick=()=>{ OV={lifts:{},ex:{}}; saveOV(); render(); };
+}
+
 let mode="home", week=D.config.week||1, tab=D.homeOrder[0];
 const tabsFor = m => (m==="home"
   ? D.homeOrder.map(d=>[d,d]).concat([["plan","주간"],["prog","증량"],["check","검산"]])
@@ -290,8 +387,9 @@ function render(){
   else if(tab==="prog") html=progressHTML(week);
   else if(tab==="bplan") html=backPlanHTML();
   else html = set[tab] ? dayHTML(set[tab],week) : planHTML();
-  document.getElementById("app").innerHTML = html +
-    `<p class="footnote">원본: ${esc(D.source)} · 중량은 시트와 동일한 계산식(MROUND 2.5kg, 웜업 40/60/75/90%)으로 산출됩니다.</p>`;
+  document.getElementById("app").innerHTML = html + ovHTML() +
+    `<p class="footnote">원본: ${esc(D.source)} · 중량은 시트와 동일한 계산식(MROUND 2.5kg, 웜업 40/60/75/90%)으로 산출됩니다. 중량 숫자를 탭하면 이 폰에서만 고칠 수 있습니다.</p>`;
+  bindEdits();
   try{ localStorage.setItem("wk-prog", JSON.stringify({mode,week,tab})); }catch(e){}
 }
 document.getElementById("ver").textContent=(D.source.match(/v\d+/)||[""])[0];

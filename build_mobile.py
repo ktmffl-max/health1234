@@ -406,7 +406,9 @@ def parse_ramp(wb):
                        "upto": None if span.endswith("~") or not digits else digits[-1],
                        "why": s(ws.cell(r, 4).value)})
         last = r
-    if not stages:
+    # 계수가 전부 1이면 램프를 꺼둔 것이다. 앱에는 아무것도 띄우지 않는다 —
+    # 100%만 적힌 표와 그 근거는 매일 보는 화면에서 잡음이다. 시트에는 그대로 남아 있다.
+    if not stages or all(st["coef"] >= 1 for st in stages):
         return None
     return {"sub": s(ws.cell(2, 1).value), "stages": stages,
             "notes": parse_notes_block(ws, last + 1, "설계 논리")}

@@ -271,12 +271,15 @@ function exHTML(e,prefix,sets){
   const w=ov?ov.w:e.w, canEdit=e.w!=="위 참조";
   const n=(sets==null?e.s:sets);
   /* 이번 주에 안 하는 종목 — 목록에서 빼지 않고 흐리게 남긴다.
-     사라진 게 아니라 몇 주차에 돌아오는지가 보여야 한다. 메모·대체 종목은 그때 읽으면 된다. */
+     사라진 게 아니라 몇 주차에 돌아오는지가 보여야 한다. 메모·대체 종목은 그때 읽으면 된다.
+     설계 세트(e.s)까지 0이면 램프 대기가 아니라 프로그램에서 빼둔 종목이다 —
+     엑셀도 조건부서식($E=0)으로 같은 줄을 연회색 처리한다. 되살릴 수 있게 행은 남긴다. */
   if(n===0) return `<article class="ex hold"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
       <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}</div></div>
-      <div class="ex-p"><b class="hold-w">${e.rw}주차 복귀</b>
-        <span class="num">설계 ${e.s} × ${esc(e.r)}</span></div></div></article>`;
+      <div class="ex-p">${e.s===0 ? `<b class="hold-w">보류</b><span class="num">${esc(e.r)}</span>`
+        : `<b class="hold-w">${e.rw}주차 복귀</b><span class="num">설계 ${e.s} × ${esc(e.r)}</span>`}
+      </div></div></article>`;
   return `<article class="ex"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
       <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}</div></div>

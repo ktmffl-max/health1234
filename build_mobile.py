@@ -54,6 +54,12 @@ def home_days(wb):
 
 LIFT_KEYS = {"스쿼트": "squat", "데드리프트": "dead",
              "벤치프레스": "bench", "밀리터리 프레스": "press"}
+
+# 볼륨 램프를 중량보다 몇 주 앞세울지.
+# 2026-08-10 결정 — 중량은 2주차 그대로 두고 볼륨만 3주차(138세트)부터 간다.
+# 0으로 되돌리면 볼륨과 중량이 같은 주차를 쓴다.
+RAMP_WEEK_OFFSET = 1
+
 LIFT_META = {                      # 시작중량_설정 행 / 증량기록 행
     "squat": {"ko": "스쿼트",        "start_row": 7,  "inc_row": 6, "accent": "var(--sq)"},
     "dead":  {"ko": "데드리프트",     "start_row": 8,  "inc_row": 5, "accent": "var(--dl)"},
@@ -287,6 +293,8 @@ def parse_day(ws):
                 "memo": s(ws.cell(r, C("메모")).value) if C("메모") else "",
                 "alt": s(ws.cell(r, C("대체 종목")).value) if C("대체 종목") else "",
                 "ind": s(ws.cell(r, C("간접 자극")).value) if C("간접 자극") else "",
+                # 이 종목이 몇 주차부터 나오는지. 열이 없는 워크북은 전부 1 = 램프 없음
+                "rw": int(num(ws.cell(r, C("복귀 주차")).value, 1)) if C("복귀 주차") else 1,
             }
             # 메인 리프트 중량은 주차에 따라 바뀌므로 상단 카드로 넘긴다
             if day["main"] and item["n"] == 1 and "본세트" in item["name"]:
@@ -386,31 +394,40 @@ def parse_plan(wb):
 
 
 def parse_ramp(wb):
-    """볼륨램프 — 주차별 세트 계수. 시트가 없는 워크북이면 None (= 항상 설계 볼륨 100%)."""
+    """볼륨램프 — 주차별로 어느 종목이 복귀하는지.
+
+    실제 세트를 정하는 것은 요일 시트 K열('복귀 주차')이고, 이 시트는 그 요약과 근거다.
+    시트가 없거나 표를 못 찾으면 None (= 항상 설계 볼륨 100%).
+    """
     if "볼륨램프" not in wb.sheetnames:
         return None
     ws = wb["볼륨램프"]
-    hdr = next((r for r in range(1, 12) if s(ws.cell(r, 1).value) == "구간"), None)
+    hdr = next((r for r in range(1, 12) if s(ws.cell(r, 1).value) == "주차"
+                and s(ws.cell(r, 2).value) == "총 세트"), None)
     if hdr is None:
         return None
 
-    stages, last = [], hdr
+    rows, last = [], hdr
     for r in range(hdr + 1, ws.max_row + 1):
-        label, span, coef = (s(ws.cell(r, 1).value), s(ws.cell(r, 2).value),
-                             num(ws.cell(r, 3).value))
-        if not label or not coef:
+        label = s(ws.cell(r, 1).value)
+        if not label:                      # 머리글 아래 빈 줄은 넘기고, 표가 끝나면 멈춘다
+            if rows:
+                break
             continue
-        digits = [int(x) for x in re.findall(r"\d+", span)]
-        # '1~2주' → 2주까지, '5주~' → 상한 없음
-        stages.append({"label": label, "span": span, "coef": coef,
-                       "upto": None if span.endswith("~") or not digits else digits[-1],
-                       "why": s(ws.cell(r, 4).value)})
+        digits = re.findall(r"\d+", label)
+        total = ws.cell(r, 2).value
+        if not digits or not isinstance(total, (int, float)):
+            break
+        # '2주 (현재)' 같은 상태 표기는 떼어낸다 — 어느 주차인지는 앱이 직접 계산해 표시한다
+        rows.append({"week": int(digits[0]),
+                     "label": re.sub(r"\s*\((?:완료|현재)\)", "", label),
+                     "total": int(total), "delta": s(ws.cell(r, 3).value),
+                     "items": s(ws.cell(r, 4).value)})
         last = r
-    # 계수가 전부 1이면 램프를 꺼둔 것이다. 앱에는 아무것도 띄우지 않는다 —
-    # 100%만 적힌 표와 그 근거는 매일 보는 화면에서 잡음이다. 시트에는 그대로 남아 있다.
-    if not stages or all(st["coef"] >= 1 for st in stages):
+    if not rows:
         return None
-    return {"sub": s(ws.cell(2, 1).value), "stages": stages,
+    return {"sub": s(ws.cell(2, 1).value), "rows": rows,
+            "offset": RAMP_WEEK_OFFSET,
             "notes": parse_notes_block(ws, last + 1, "설계 논리")}
 
 
@@ -460,6 +477,11 @@ def parse_progress_notes(wb):
     return parse_notes_block(wb["증량기록"], 23, "운용 규칙")
 
 
+def all_ex(day):
+    """요일 하나의 종목 전부. 그룹으로 묶인 시트와 평평한 시트 양쪽을 같이 다룬다."""
+    return (day.get("ex") or []) + [x for _, g in (day.get("groups") or []) for x in g]
+
+
 def build(xlsx_path, out_path):
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     home = home_days(wb)
@@ -480,6 +502,15 @@ def build(xlsx_path, out_path):
         "progressNotes": parse_progress_notes(wb),
         "source": Path(xlsx_path).name,
     }
+    # 램프가 실제로 걸려 있는지는 요일 시트 K열이 정한다.
+    # 전부 1이면 모든 종목이 1주차부터 나오는 것이므로 앱에 램프를 띄우지 않는다 —
+    # 100%만 적힌 표는 매일 보는 화면에서 잡음이다. 시트에는 그대로 남아 있다.
+    ret = [e.get("rw", 1) for d in data["home"].values() for e in all_ex(d)]
+    if data["ramp"] and ret and max(ret) > 1:
+        data["ramp"]["fullWeek"] = max(ret)
+    else:
+        data["ramp"] = None
+
     # 휴식일은 주간계획에서 가져와 끼워 넣는다
     for d, content, sets in data["plan"]["rows"]:
         if sets == 0 and d not in data["home"]:
@@ -507,8 +538,11 @@ def build(xlsx_path, out_path):
     print(f"  훈련 {train}일 · 주간 {data['plan']['total']}세트 "
           f"· {data['config']['weeks']}주 계획")
     if data["ramp"]:
-        print("  볼륨램프: " + " / ".join(
-            f"{st['span']} {int(st['coef'] * 100)}%" for st in data["ramp"]["stages"]))
+        vw = data["config"]["week"] + RAMP_WEEK_OFFSET
+        print("  볼륨램프(종목 복귀): " + " / ".join(
+            f"{r['label']} {r['total']}세트" for r in data["ramp"]["rows"]))
+        print(f"       중량 {data['config']['week']}주차 · 볼륨 {vw}주차"
+              + (f" (앞세움 +{RAMP_WEEK_OFFSET})" if RAMP_WEEK_OFFSET else ""))
     for row in data["check"]:
         if row[4] != "ok":
             print(f"  [주의] {row[0]}: 실질 {row[3]}세트 — {row[5]}")
@@ -588,6 +622,7 @@ main{padding:18px var(--pad) 0;max-width:640px;margin:0 auto}
   border:1px solid var(--line);border-left:3px solid var(--bp);border-radius:11px;
   padding:10px 13px;margin:0 0 18px}
 .rampbar b{font-size:12.5px;font-weight:800;color:var(--bp)}
+.rampbar b span{font-weight:600;color:var(--mute)}
 .rampbar span{font-size:11.5px;color:var(--mute);line-height:1.5}
 .lift{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-bottom:20px}
 .lift-top{padding:15px 16px 13px;display:flex;align-items:flex-end;gap:14px;border-left:4px solid var(--accent)}
@@ -623,7 +658,9 @@ main{padding:18px var(--pad) 0;max-width:640px;margin:0 auto}
 .ex-p{text-align:right;flex:0 0 auto}
 .ex-p b{font-size:16px;font-weight:800;letter-spacing:-.02em;display:block}
 .ex-p span{font-size:11.5px;color:var(--mute)}
-.ex-p .design{display:block;font-size:10.5px;color:var(--dim);text-decoration:line-through}
+/* 이번 주에 쉬는 종목 — 흐리게 두고 언제 돌아오는지만 남긴다 */
+.ex.hold{opacity:.5}
+.ex-p b.hold-w{font-size:12px;font-weight:800;letter-spacing:0;color:var(--bp)}
 .ex-memo{font-size:12.5px;color:var(--mute);margin-top:9px;padding-top:9px;border-top:1px solid var(--line);line-height:1.5}
 details{margin-top:9px}
 details summary{list-style:none;font-size:11.5px;font-weight:700;color:var(--dim);cursor:pointer;display:flex;align-items:center;gap:5px}
@@ -649,7 +686,8 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .tbl td.wrap{white-space:normal;text-align:left;color:var(--mute);font-size:11.5px;padding-left:8px}
 /* 오른쪽 정렬 열 바로 뒤에 오는 왼쪽 정렬 머리글은 여백이 없으면 앞 글자와 붙는다 */
 .tbl th.wrap{text-align:left;padding-left:8px}
-.judge{font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:999px;border:1px solid}
+.judge{font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:999px;border:1px solid;
+  white-space:nowrap;display:inline-block}
 .j-ok{color:var(--mp);border-color:rgba(46,145,97,.45)}
 .j-lo{color:var(--bp);border-color:rgba(221,165,27,.45)}
 .j-bad{color:var(--sq);border-color:rgba(201,58,66,.45)}
@@ -719,19 +757,17 @@ if(ovStale) saveOV();
 const startOf = k => OV.lifts[k] ? OV.lifts[k].start : LIFT[k].start;
 const workWeight = (k,w) => startOf(k) + LIFT[k].inc*(w-1);
 
-/* ── 볼륨 램프 ────────────────────────────────────────────────────
-   중량은 40%에서 시작하는데 세트는 1주차부터 100%면 방향이 반대다.
-   엑셀 J열과 같은 식으로 이 주차의 실제 세트를 계산한다: MAX(1, ROUND(설계 × 계수)).
+/* ── 볼륨 램프 — 종목 복귀 방식 ───────────────────────────────────
+   계수로 전 종목을 한꺼번에 깎던 방식을 버렸다. 종목마다 '복귀 주차'(엑셀 K열)가 있고,
+   그 주차 전에는 종목 자체가 빠진다. 나오는 종목은 설계 세트를 그대로 한다.
+   엑셀 J열과 같은 식: IF(볼륨 주차 >= 복귀 주차, 설계 세트, 0).
+   볼륨 주차는 중량 주차보다 offset만큼 앞서간다 (2026-08-10: 중량 2주차 · 볼륨 3주차).
    복귀 모드에는 주차 개념이 없으므로 적용하지 않는다. */
 const RAMP = D.ramp;
 const rampOn = () => !!(RAMP && mode==="home");
-function stageOf(w){
-  if(!RAMP) return null;
-  for(const st of RAMP.stages){ if(st.upto==null || w<=st.upto) return st; }
-  return RAMP.stages[RAMP.stages.length-1];
-}
-const setsOf = (design,w) => { const st=stageOf(w);
-  return st ? Math.max(1, Math.round(design*st.coef)) : design; };
+const vWeek = w => w + (RAMP ? RAMP.offset : 0);
+const setsOf = (e,w) => vWeek(w) >= (e.rw||1) ? e.s : 0;
+const rampRow = w => RAMP.rows.filter(r=>r.week<=vWeek(w)).pop() || RAMP.rows[0];
 
 function ramp(work){
   const pct=[.4,.6,.75,.9], reps=[5,5,3,2], sets=[2,1,1,1];
@@ -756,11 +792,11 @@ function stackHTML(total){
     : `<em>빈 봉 20kg</em>`;
   return `<div class="stack"><div class="sleeve"></div>${body}</div>`;
 }
-function liftCard(key,week){
+function liftCard(key,week,sets){
   const L=LIFT[key]; if(!L) return "";
   const work=workWeight(key,week), rows=ramp(work);
-  /* 본세트도 램프 대상. 웜업은 카운트 밖이라 그대로 둔다 */
-  const ws=rampOn()?setsOf(L.sets,week):L.sets;
+  /* 본세트 수는 종목표 1번 행이 정한다 — 메인 리프트는 어느 주차에도 빠지지 않는다 */
+  const ws=(sets==null?L.sets:sets);
   const rp=rows.map(r=>`
     <div class="r-w ${r.w?'':'skip'}">${r.w?fmt(r.w)+'<span style="font-size:11px;color:var(--mute)"> kg</span>':'생략'}</div>
     <div class="r-x num">${r.reps}회</div><div class="r-x num">${r.sets}세트</div>`).join("");
@@ -785,31 +821,49 @@ function exHTML(e,prefix,sets){
   const key=prefix+"|"+e.name, ov=OV.ex[key];
   const w=ov?ov.w:e.w, canEdit=e.w!=="위 참조";
   const n=(sets==null?e.s:sets);
+  /* 이번 주에 안 하는 종목 — 목록에서 빼지 않고 흐리게 남긴다.
+     사라진 게 아니라 몇 주차에 돌아오는지가 보여야 한다. 메모·대체 종목은 그때 읽으면 된다. */
+  if(n===0) return `<article class="ex hold"><div class="ex-h">
+      <div class="ex-n num">${e.n}</div>
+      <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}</div></div>
+      <div class="ex-p"><b class="hold-w">${e.rw}주차 복귀</b>
+        <span class="num">설계 ${e.s} × ${esc(e.r)}</span></div></div></article>`;
   return `<article class="ex"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
       <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}</div></div>
-      <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b>${n!==e.s?`<span class="num design">설계 ${e.s}</span>`:""}<span class="num ex-w ${ov?'edited':''}"${canEdit?` data-exkey="${escAttr(key)}"`:""}>${esc(w)}</span></div></div>
+      <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${ov?'edited':''}"${canEdit?` data-exkey="${escAttr(key)}"`:""}>${esc(w)}</span></div></div>
     ${e.memo?`<div class="ex-memo">${esc(e.memo)}</div>`:""}
     ${e.alt?`<details><summary>대체 종목</summary><p>${esc(e.alt)}</p></details>`:""}</article>`;
 }
 const notesHTML = ns => !ns||!ns.length ? "" :
   `<div class="notes">`+ns.map(([h,ls])=>`<h5>${esc(h)}</h5><ul>${ls.map(l=>`<li>${esc(l)}</li>`).join("")}</ul>`).join("")+`</div>`;
 
+const allEx = d => (d.ex||[]).concat(d.groups?d.groups.reduce((a,g)=>a.concat(g[1]),[]):[]);
+
+function rampBar(all,S,total,done,week){
+  const wait={};
+  all.forEach(e=>{ if(S(e)===0) wait[e.rw]=(wait[e.rw]||0)+1; });
+  const when=Object.keys(wait).map(Number).sort((a,b)=>a-b)
+    .map(k=>`${k}주차에 ${wait[k]}종목`).join(" · ");
+  return `<div class="rampbar"><b>볼륨 ${vWeek(week)}주차 · ${done}세트 <span>/ 설계 ${total}</span></b>
+    <span>${when?`대기 중 — ${when} 복귀.`:""} 나오는 종목은 설계 세트 그대로 한다</span></div>`;
+}
+
 function dayHTML(d,week){
   if(d.rest) return `<h2 class="daytitle">${esc(d.t)}</h2><p class="daysub">${esc(d.sub||"휴식일")}</p>`;
   const prefix=mode+"|"+tab;
-  const on=rampOn(), st=on?stageOf(week):null;
-  const S = e => on ? setsOf(e.s,week) : e.s;
-  let done=0;
-  const one = e => { done+=S(e); return exHTML(e,prefix,S(e)); };
+  const on=rampOn();
+  const S = e => on ? setsOf(e,week) : e.s;
+  const all=allEx(d), done=all.reduce((a,e)=>a+S(e),0);
+  const one = e => exHTML(e,prefix,S(e));
   const body = d.groups
     ? d.groups.map(([g,list])=>`<div class="grouphead">${esc(g)}</div>`+list.map(one).join("")).join("")
     : `<div class="grouphead">운동 구성</div>`+d.ex.map(one).join("");
-  const bar = (st && st.coef<1)
-    ? `<div class="rampbar"><b>볼륨램프 ${Math.round(st.coef*100)}%</b>
-         <span>${esc(st.label)} · ${esc(st.span)} — 설계 ${d.total}세트 중 ${done}세트만 수행</span></div>` : "";
+  const bar = (on && done!==d.total) ? rampBar(all,S,d.total,done,week) : "";
+  /* 메인 리프트 카드의 본세트 수는 종목표 1번 행과 같은 값을 쓴다 */
+  const mainRow = all.find(e=>e.n===1 && e.name.indexOf("본세트")>=0);
   return `<h2 class="daytitle">${esc(d.t)}</h2><p class="daysub">${esc(d.sub)}</p>${bar}
-    ${d.main?liftCard(d.main,week):""}${notesHTML(d.pre)}${body}
+    ${d.main?liftCard(d.main,week,mainRow?S(mainRow):null):""}${notesHTML(d.pre)}${body}
     <div class="total"><span>세트 합계</span><b class="num">${done!==d.total?`${done} <i style="font-style:normal;font-weight:600;color:var(--mute);font-size:13px">/ 설계 ${d.total}</i>`:d.total}</b></div>${notesHTML(d.notes)}`;
 }
 function checkHTML(){
@@ -822,32 +876,34 @@ function checkHTML(){
   <tr><td style="font-weight:800">직접 세트 총계</td><td class="num" style="font-weight:800">${D.check.reduce((a,r)=>a+r[1],0)}</td><td colspan="3"></td></tr>
   </tbody></table>
   <div class="notes"><h5>간접 출처</h5><ul>${D.check.filter(r=>r[6]&&r[6]!=="—")
-    .map(r=>`<li><b style="color:var(--ink)">${esc(r[0])}</b> — ${esc(r[6])}</li>`).join("")}</ul></div>`;
+    .map(r=>`<li><b style="color:var(--ink)">${esc(r[0])}</b> — ${esc(r[6])}</li>`).join("")}</ul></div>
+  ${RAMP?`<p class="footnote">이 표는 설계 볼륨 기준이다 — 램프가 끝난 ${RAMP.rows[RAMP.rows.length-1].week}주차부터의 값.
+    이번 주에 실제로 하는 세트는 요일 탭과 주간 탭에서 본다.</p>`:""}`;
 }
 function rampHTML(){
   if(!RAMP) return "";
-  const now=stageOf(week);
-  return `<h3 class="sub-h">볼륨 램프</h3><p class="daysub">${esc(RAMP.sub||"")}</p>
-  <table class="tbl"><thead><tr><th>구간</th><th>주차</th><th>계수</th><th class="wrap">성격</th></tr></thead><tbody>
-  ${RAMP.stages.map(s=>`<tr style="${s===now?'background:var(--raised)':''}">
-    <td>${esc(s.label)}</td><td class="num">${esc(s.span)}</td>
-    <td class="num" style="font-weight:800">${Math.round(s.coef*100)}%</td>
-    <td class="wrap" style="color:var(--mute)">${esc(s.why||"")}</td></tr>`).join("")}
+  const now=rampRow(week);
+  return `<h3 class="sub-h">볼륨 램프 — 종목 복귀</h3><p class="daysub">${esc(RAMP.sub||"")}</p>
+  <table class="tbl"><thead><tr><th>주차</th><th>총 세트</th><th>증가폭</th><th class="wrap">이 주차에 복귀하는 종목</th></tr></thead><tbody>
+  ${RAMP.rows.map(r=>`<tr style="${r===now?'background:var(--raised)':''}">
+    <td>${esc(r.label)}${r===now?' <span class="judge j-lo">현재</span>':''}</td>
+    <td class="num" style="font-weight:800">${r.total}</td>
+    <td class="num" style="color:var(--mute)">${esc(r.delta)}</td>
+    <td class="wrap" style="color:var(--mute)">${esc(r.items)}</td></tr>`).join("")}
   </tbody></table>${notesHTML(RAMP.notes)}`;
 }
 function planHTML(){
-  const p=D.plan, st=rampOn()?stageOf(week):null, on=!!(st&&st.coef<1);
-  /* 요일 시트의 종목별 반올림 합이라 '합계 × 계수'와는 다르다 — 그래서 실제 카드와 같은 방식으로 다시 센다 */
+  const p=D.plan;
+  /* 요일 카드와 같은 방식으로 다시 센다 — 종목 단위로 빠지므로 합계에 계수를 곱하는 식이 아니다 */
   const wkSets = d => { const day=D.home[d];
-    if(!day||day.rest) return 0;
-    const all=(day.ex||[]).concat(day.groups?day.groups.reduce((a,g)=>a.concat(g[1]),[]):[]);
-    return all.reduce((a,e)=>a+setsOf(e.s,week),0); };
+    return (!day||day.rest) ? 0 : allEx(day).reduce((a,e)=>a+setsOf(e,week),0); };
+  const sum=rampOn()?p.rows.reduce((a,[d,,n])=>a+(n?wkSets(d):0),0):p.total;
+  const on=rampOn()&&sum!==p.total;
   const rows=p.rows.map(([d,c,n])=>`<tr class="${n?'':'rest'}"><td>${esc(d)}</td><td class="wrap">${esc(c)}</td>
     <td class="num">${n||"—"}</td>${on?`<td class="num" style="font-weight:800">${n?wkSets(d):"—"}</td>`:""}</tr>`).join("");
-  const sum=on?p.rows.reduce((a,[d,,n])=>a+(n?wkSets(d):0),0):p.total;
   return `<h2 class="daytitle">주간 계획</h2><p class="daysub">${esc(p.sub)}</p>
-  ${on?`<div class="rampbar"><b>볼륨램프 ${Math.round(st.coef*100)}%</b>
-      <span>${esc(st.label)} · ${esc(st.span)} — ${week}주차에 실제로 수행하는 세트는 오른쪽 열</span></div>`:""}
+  ${on?`<div class="rampbar"><b>볼륨 ${vWeek(week)}주차 · ${sum}세트 <span>/ 설계 ${p.total}</span></b>
+      <span>오른쪽 열이 이번 주에 실제로 하는 세트다. 중량은 ${week}주차 그대로</span></div>`:""}
   <table class="tbl"><thead><tr><th>요일</th><th style="text-align:left">내용</th><th>${on?"설계":"세트"}</th>${on?"<th>이번 주</th>":""}</tr></thead><tbody>
   ${rows}
   <tr><td style="font-weight:800">합계</td><td></td><td class="num" style="font-weight:800">${p.total}</td>${on?`<td class="num" style="font-weight:800">${sum}</td>`:""}</tr>
@@ -947,7 +1003,9 @@ function render(){
   document.getElementById("weekbar").style.display = mode==="home"?"flex":"none";
   document.getElementById("wk-track").style.display = mode==="home"?"flex":"none";
   document.getElementById("wk-num").textContent=week;
-  document.getElementById("wk-of").textContent=`WEEK / ${WEEKS}`;
+  /* 큰 숫자는 중량 주차다. 볼륨이 그보다 앞서 있으면 여기서 같이 밝힌다 */
+  document.getElementById("wk-of").textContent=`WEEK / ${WEEKS}`
+    + (rampOn()&&vWeek(week)!==week ? ` · 볼륨 ${vWeek(week)}주` : "");
   document.getElementById("wk-track").innerHTML=
     Array.from({length:WEEKS},(_,i)=>`<span class="${i<week?'on':''}"></span>`).join("");
   document.getElementById("wk-down").disabled=week<=1;

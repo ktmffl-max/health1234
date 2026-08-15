@@ -214,6 +214,11 @@ def is_continuation(t):
     return len(t) > 40 or t.endswith((".", "다", "음", "함"))
 
 
+def is_ramp_cell(t):
+    """메인 리프트 웜업 램프의 중량 칸 — 숫자이거나 '생략'. 안내문이 아니다."""
+    return t == "생략" or re.fullmatch(r"\d+(\.\d+)?", t) is not None
+
+
 def find_header(ws, max_row=40):
     """A열이 '#'인 행 = 종목표 머리글 행."""
     for r in range(1, max_row + 1):
@@ -246,20 +251,33 @@ def parse_day(ws):
     # 종목표 위쪽 블록 (웜업 · 관절 준비 등) — 세트 카운트 대상이 아닌 안내문
     pre_head, pre_bul = None, []
     SKIP = ("중량(Kg)", "운동 구성")
+
+    def flush():
+        """모아둔 블록을 내보낸다.
+
+        불릿(·)이 한 줄도 없으면 제목만 있는 블록이다. v18의
+        '웜업 — 스캡 풀업 …: 팔은 편 채 …' 처럼 한 줄에 다 적은 형태가 여기 해당하는데,
+        예전에는 이런 줄이 통째로 버려져 앱에서 웜업이 사라졌다. 콜론에서 갈라
+        앞은 제목, 뒤는 내용으로 쓴다."""
+        if pre_bul:
+            day["pre"].append([pre_head or "웜업", pre_bul])
+        elif pre_head:
+            head, _, rest = pre_head.partition(":")
+            day["pre"].append([head.strip(), [rest.strip()] if rest.strip() else []])
+
     for rr in range(3, hdr):
         t = s(ws.cell(rr, 1).value)
-        if not t or t in SKIP or t.startswith("메인:") or t.startswith("↑"):
+        if (not t or t in SKIP or t.startswith("메인:") or t.startswith("↑")
+                or is_ramp_cell(t)):
             continue
         if t.startswith("·"):
             pre_bul.append(t.lstrip("· ").strip())
         elif pre_bul and is_continuation(t):
             pre_bul[-1] += " " + t
         else:
-            if pre_bul:
-                day["pre"].append([pre_head or "웜업", pre_bul])
+            flush()
             pre_head, pre_bul = t.strip("[]"), []
-    if pre_bul:
-        day["pre"].append([pre_head or "웜업", pre_bul])
+    flush()
 
     # 머리글 → 열 번호 지도 (복귀 시트는 '간접 자극' 열이 없음)
     cols = {}

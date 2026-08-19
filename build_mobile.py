@@ -678,6 +678,13 @@ main{padding:18px var(--pad) 0;max-width:640px;margin:0 auto}
 .ex-p span{font-size:11.5px;color:var(--mute)}
 /* 이번 주에 쉬는 종목 — 흐리게 두고 언제 돌아오는지만 남긴다 */
 .ex.hold{opacity:.5}
+/* 설계 세트 0(프로그램에서 빼둔 종목) — 흐름에서 빼고 하단 접기 안에 모은다 */
+.holdbox{margin-top:12px;padding:11px 14px;border:1px dashed var(--line);border-radius:13px}
+.holdbox>summary{color:var(--mute)}
+.holdbox>summary i{font-style:normal;font-weight:600;color:var(--dim)}
+.holdbox[open]>summary{margin-bottom:11px}
+.holdbox .ex{margin-bottom:0}
+.holdbox .ex+.ex{margin-top:8px}
 .ex-p b.hold-w{font-size:12px;font-weight:800;letter-spacing:0;color:var(--bp)}
 .ex-memo{font-size:12.5px;color:var(--mute);margin-top:9px;padding-top:9px;border-top:1px solid var(--line);line-height:1.5}
 details{margin-top:9px}
@@ -863,7 +870,7 @@ const allEx = d => (d.ex||[]).concat(d.groups?d.groups.reduce((a,g)=>a.concat(g[
 
 function rampBar(all,S,total,done,week){
   const wait={};
-  all.forEach(e=>{ if(S(e)===0) wait[e.rw]=(wait[e.rw]||0)+1; });
+  all.forEach(e=>{ if(e.s>0 && S(e)===0) wait[e.rw]=(wait[e.rw]||0)+1; });
   const when=Object.keys(wait).map(Number).sort((a,b)=>a-b)
     .map(k=>`${k}주차에 ${wait[k]}종목`).join(" · ");
   return `<div class="rampbar"><b>볼륨 ${vWeek(week)}주차 · ${done}세트 <span>/ 설계 ${total}</span></b>
@@ -877,15 +884,23 @@ function dayHTML(d,week){
   const S = e => on ? setsOf(e,week) : e.s;
   const all=allEx(d), done=all.reduce((a,e)=>a+S(e),0);
   const one = e => exHTML(e,prefix,S(e));
+  /* 설계 세트 0 = 프로그램에서 빼둔 종목(옮겼거나 제외했거나).
+     목록 흐름에서 빼고 하단 접기에 모은다 — 폰에서는 오늘 할 것만 보이고,
+     엑셀 행은 그대로라 세트수만 되돌리면 다시 흐름으로 돌아온다.
+     램프 대기(설계는 있는데 이번 주 0)는 몇 주차 복귀인지가 정보라 그대로 남긴다. */
+  const held = all.filter(e=>e.s===0), live = list => list.filter(e=>e.s!==0);
   const body = d.groups
-    ? d.groups.map(([g,list])=>`<div class="grouphead">${esc(g)}</div>`+list.map(one).join("")).join("")
-    : `<div class="grouphead">운동 구성</div>`+d.ex.map(one).join("");
+    ? d.groups.map(([g,list])=>live(list).length
+        ? `<div class="grouphead">${esc(g)}</div>`+live(list).map(one).join("") : "").join("")
+    : `<div class="grouphead">운동 구성</div>`+live(d.ex).map(one).join("");
+  const holdBox = held.length ? `<details class="holdbox"><summary>보류 ${held.length}종목
+    <i>· 세트 합계에서 빠짐</i></summary>${held.map(one).join("")}</details>` : "";
   const bar = (on && done!==d.total) ? rampBar(all,S,d.total,done,week) : "";
   /* 메인 리프트 카드의 본세트 수는 종목표 1번 행과 같은 값을 쓴다 */
   const mainRow = all.find(e=>e.n===1 && e.name.indexOf("본세트")>=0);
   return `<h2 class="daytitle">${esc(d.t)}</h2><p class="daysub">${esc(d.sub)}</p>${bar}
     ${d.main?liftCard(d.main,week,mainRow?S(mainRow):null):""}${notesHTML(d.pre)}${body}
-    <div class="total"><span>세트 합계</span><b class="num">${done!==d.total?`${done} <i style="font-style:normal;font-weight:600;color:var(--mute);font-size:13px">/ 설계 ${d.total}</i>`:d.total}</b></div>${notesHTML(d.notes)}`;
+    <div class="total"><span>세트 합계</span><b class="num">${done!==d.total?`${done} <i style="font-style:normal;font-weight:600;color:var(--mute);font-size:13px">/ 설계 ${d.total}</i>`:d.total}</b></div>${holdBox}${notesHTML(d.notes)}`;
 }
 function checkHTML(){
   return `<h2 class="daytitle">세트 검산</h2>

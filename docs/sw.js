@@ -1,4 +1,4 @@
-const VERSION = "09b28a0ed457";
+const VERSION = "d336ad82ee34";
 const CACHE = "workout-" + VERSION;
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest",
                 "./icon-192.png", "./icon-512.png"];

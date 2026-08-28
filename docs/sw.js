@@ -1,7 +1,9 @@
-const VERSION = "07ba037d3569";
+const VERSION = "6463a35f2526";
 const CACHE = "workout-" + VERSION;
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest",
-                "./icon-192.png", "./icon-512.png"];
+                "./icon-192.png", "./icon-512.png",
+                "./voice/prep.wav", "./voice/work.wav",
+                "./voice/rest.wav", "./voice/done.wav"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS))

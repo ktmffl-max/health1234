@@ -146,7 +146,9 @@ SW_JS = """\
 const VERSION = "__VERSION__";
 const CACHE = "workout-" + VERSION;
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest",
-                "./icon-192.png", "./icon-512.png"];
+                "./icon-192.png", "./icon-512.png",
+                "./voice/prep.wav", "./voice/work.wav",
+                "./voice/rest.wav", "./voice/done.wav"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS))
@@ -758,8 +760,10 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 #tm[hidden]{display:none}
 .tm-top{display:flex;align-items:center;justify-content:space-between;gap:10px;
   font-size:12.5px;font-weight:700;color:var(--mute)}
-.tm-top button{font:inherit;font-size:21px;line-height:1;background:none;border:0;
+.tm-top button{font:inherit;font-size:19px;line-height:1;background:none;border:0;
   color:var(--mute);padding:2px 6px;cursor:pointer}
+.tm-btns{display:flex;align-items:center;gap:2px;flex:none}
+#tm-mute.off{opacity:.4}
 .tm-body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
   text-align:center;min-height:0}
 #tm-name{margin:0;font-size:25px;font-weight:800;line-height:1.25;letter-spacing:-.02em}
@@ -797,7 +801,9 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 </header>
 <main id="app"></main>
 <div id="tm" hidden>
-  <div class="tm-top"><span id="tm-ctx"></span><button id="tm-x" aria-label="타이머 닫기">&#10005;</button></div>
+  <div class="tm-top"><span id="tm-ctx"></span><span class="tm-btns"
+    ><button id="tm-mute" aria-label="음성 켜기/끄기">&#128266;</button
+    ><button id="tm-x" aria-label="타이머 닫기">&#10005;</button></span></div>
   <div class="tm-body">
     <h3 id="tm-name"></h3>
     <p id="tm-meta"></p>
@@ -1125,7 +1131,34 @@ function tmW(e){
        예약된 소리는 하드웨어가 정시에 낸다.
    진동은 예약이 안 되고 화면이 꺼져 있으면 브라우저가 막으므로 보조 수단이다. */
 const LOOKAHEAD=90000;
-let tmKeep=null, tmPend=[], tmSchedAt=0;
+let tmKeep=null, tmPend=[], tmSchedAt=0, tmIdle=null;
+
+/* 말소리도 삐 소리와 같은 오디오 시계에 건다.
+   기기 TTS(speechSynthesis)를 안 쓰는 이유: 화면이 꺼지면 크롬이
+   not-allowed로 통째로 거부한다 — 정작 필요한 순간에 안 나온다.
+   미리 구운 wav라 화면이 꺼져 있어도 예약대로 난다. */
+const VSRC={prep:"voice/prep.wav",work:"voice/work.wav",
+            rest:"voice/rest.wav",done:"voice/done.wav"};
+const VOICE={};
+let voiceOn=true; try{ voiceOn=localStorage.getItem("wk-voice")!=="0"; }catch(e){}
+function tmVoiceLoad(){
+  if(!tmAC) return;
+  for(const k in VSRC){
+    if(k in VOICE) continue;
+    VOICE[k]=null;                                  /* 중복 요청 방지 */
+    fetch(VSRC[k]).then(r=>r.arrayBuffer()).then(b=>tmAC.decodeAudioData(b))
+      .then(buf=>{ VOICE[k]=buf; if(TM&&TM.run) tmSchedule(); })
+      .catch(()=>{ delete VOICE[k]; });              /* 못 받으면 삐 소리만 */
+  }
+}
+function tmSay(kind,at){
+  if(!voiceOn||!VOICE[kind]) return null;
+  try{
+    const src=tmAC.createBufferSource();
+    src.buffer=VOICE[kind]; src.connect(tmAC.destination); src.start(at);
+    return src;
+  }catch(e){ return null; }
+}
 
 const tmVib=p=>{ try{ if(document.visibilityState==="visible"&&navigator.vibrate) navigator.vibrate(p); }catch(e){} };
 
@@ -1137,17 +1170,20 @@ function tmKeepStart(){
     tmKeep.connect(tmAC.destination); tmKeep.start();
   }catch(e){}
 }
-function tmAudio(){
-  if(tmAC){
+/* quiet=true — 컨텍스트만 만들고 말소리를 미리 디코딩한다. 소리는 안 낸다.
+   페이지가 열릴 때 한 번 이렇게 불러두면 첫 '준비'부터 말이 나온다. */
+function tmAudio(quiet){
+  clearTimeout(tmIdle);
+  if(!tmAC){
+    try{ tmAC=new (window.AudioContext||window.webkitAudioContext)(); }
+    catch(e){ tmAC=null; return null; }
+    tmVoiceLoad();
+  }
+  if(!quiet){
     if(tmAC.state==="suspended") tmAC.resume();
     if(!tmKeep) tmKeepStart();
-    return tmAC;
+    tmVoiceLoad();
   }
-  try{
-    tmAC=new (window.AudioContext||window.webkitAudioContext)();
-    tmAC.resume();          /* 사용자 탭에서 만들어지지만 suspended로 나는 기기가 있다 */
-    tmKeepStart();
-  }catch(e){ tmAC=null; }
   return tmAC;
 }
 function tmTone(f,dur,vol,at){
@@ -1163,11 +1199,13 @@ function tmTone(f,dur,vol,at){
 function tmCueAt(kind,wall){
   if(!tmAC) return;
   const at=tmAC.currentTime+Math.max(0,(wall-Date.now())/1000), n=[];
-  if(kind==="work") n.push(tmTone(1046,.35,.6,at));
-  else if(kind==="rest"){ n.push(tmTone(660,.15,.5,at)); n.push(tmTone(660,.15,.5,at+.22)); }
-  else if(kind==="prep") n.push(tmTone(784,.12,.4,at));
+  /* 삐 소리가 먼저 귀를 잡고, 뒤이어 무엇인지 말한다 */
+  if(kind==="work"){ n.push(tmTone(1046,.35,.6,at)); n.push(tmSay("work",at+.42)); }
+  else if(kind==="rest"){ n.push(tmTone(660,.15,.5,at)); n.push(tmTone(660,.15,.5,at+.22));
+                          n.push(tmSay("rest",at+.5)); }
+  else if(kind==="prep"){ n.push(tmTone(784,.12,.4,at)); n.push(tmSay("prep",at+.2)); }
   else if(kind==="tick") n.push(tmTone(880,.07,.3,at));
-  else n.push(tmTone(1046,.5,.6,at));
+  else { n.push(tmTone(1046,.5,.6,at)); n.push(tmSay("done",at+.62)); }
   tmPend.push({at:wall,kind:kind,nodes:n.filter(Boolean)});
 }
 /* 아직 안 난 예약을 모두 취소한다. 나고 있는 소리는 자르지 않는다 */
@@ -1286,8 +1324,13 @@ function tmPause(){
 }
 function tmClose(){
   clearInterval(tmInt); tmInt=null; TM=null; tmLeft=-1; tmUnlock(); tmDrop();
-  /* 유지음은 끊는다 — 타이머를 닫고도 계속 흘리면 배터리만 먹는다 */
-  try{ if(tmKeep){ tmKeep.stop(); tmKeep=null; } if(tmAC) tmAC.suspend(); }catch(e){}
+  /* 유지음은 끊는다 — 타이머를 닫고도 계속 흘리면 배터리만 먹는다.
+     다만 '완료' 말소리가 남아 있을 수 있어 2.5초 뒤에 끈다. */
+  clearTimeout(tmIdle);
+  tmIdle=setTimeout(()=>{ try{
+    if(tmKeep){ tmKeep.stop(); tmKeep=null; }
+    if(tmAC) tmAC.suspend();
+  }catch(e){} }, 2500);
   try{ if("mediaSession" in navigator){ navigator.mediaSession.metadata=null;
     navigator.mediaSession.playbackState="none"; } }catch(e){}
   document.getElementById("tm").hidden=true;
@@ -1336,6 +1379,17 @@ function render(){
   bindEdits();
   try{ localStorage.setItem("wk-prog", JSON.stringify({mode,week,tab})); }catch(e){}
 }
+const tmMuteBtn=document.getElementById("tm-mute");
+const tmMutePaint=()=>{ tmMuteBtn.textContent=voiceOn?"\uD83D\uDD0A":"\uD83D\uDD07";
+  tmMuteBtn.classList.toggle("off",!voiceOn); };
+tmMutePaint();
+try{ tmAudio(true); }catch(e){}     /* 말소리 미리 디코딩 — 출력은 없다 */
+tmMuteBtn.onclick=()=>{
+  voiceOn=!voiceOn;
+  try{ localStorage.setItem("wk-voice",voiceOn?"1":"0"); }catch(e){}
+  tmMutePaint();
+  if(TM&&TM.run) tmSchedule();      /* 이미 걸어둔 예약을 새 설정으로 다시 건다 */
+};
 document.getElementById("tm-x").onclick=tmClose;
 document.getElementById("tm-play").onclick=tmPause;
 document.getElementById("tm-next").onclick=()=>tmGo(1);

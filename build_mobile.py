@@ -18,7 +18,7 @@
       openpyxl은 수식의 '계산된 값'을 읽는데, 그 값은 엑셀이 저장할 때 기록됩니다.
 """
 
-import argparse, json, re, sys
+import argparse, datetime, json, re, sys
 from pathlib import Path
 
 try:
@@ -459,6 +459,39 @@ def parse_ramp(wb):
             "notes": parse_notes_block(ws, last + 1, "설계 논리")}
 
 
+def parse_anchor(wb):
+    """증량기록 '날짜 (1일차)' 열 — 그 사이클의 1일차 날짜. 달력의 기준점이다.
+
+    여러 줄이 채워져 있으면 가장 늦은 날짜를 쓴다. 중간에 쉬어서 주기가 밀리면
+    다음 사이클 줄에 날짜를 적는 것만으로 기준이 다시 맞는다.
+    비어 있으면 None — 앱이 '오늘이 몇 일차인지' 직접 묻는다.
+    """
+    if "증량기록" not in wb.sheetnames:
+        return None
+    ws = wb["증량기록"]
+    hdr = next((r for r in range(1, 20) if s(ws.cell(r, 1).value) == "사이클"), None)
+    if hdr is None:
+        return None
+    c_date = next((c for c in range(1, ws.max_column + 1)
+                   if s(ws.cell(hdr, c).value).startswith("날짜")), None)
+    if not c_date:
+        return None
+    best = None
+    for r in range(hdr + 1, ws.max_row + 1):
+        label = s(ws.cell(r, 1).value)
+        if not label:
+            if best:
+                break
+            continue
+        m = re.match(r"(\d+)", label)
+        v = ws.cell(r, c_date).value
+        if m and isinstance(v, datetime.datetime):
+            cur = {"date": v.strftime("%Y-%m-%d"), "cycle": int(m.group(1))}
+            if best is None or cur["date"] > best["date"]:
+                best = cur
+    return best
+
+
 def parse_back_plan(wb):
     ws = wb["복귀_주간계획"]
     hdr = None
@@ -529,6 +562,7 @@ def build(xlsx_path, out_path):
         "ramp":   parse_ramp(wb),
         "backPlan": parse_back_plan(wb),
         "progressNotes": parse_progress_notes(wb),
+        "anchor": parse_anchor(wb),
         "source": Path(xlsx_path).name,
     }
     # 램프가 실제로 걸려 있는지는 요일 시트 K열이 정한다.
@@ -746,6 +780,38 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .ovbox li{font-size:12.5px;color:var(--mute);line-height:1.65}
 .ovbox button{font:inherit;font-size:12px;font-weight:700;padding:7px 12px;border-radius:9px;
   background:transparent;color:var(--sq);border:1px solid var(--sq);cursor:pointer}
+
+/* ── 달력 ──────────────────────────────────────────────────────── */
+.cal-bar{display:flex;align-items:center;gap:8px;margin:2px 0 12px}
+.cal-bar h3{flex:1;margin:0;font-size:17px;font-weight:800;letter-spacing:-.02em}
+.cal-bar button{font:inherit;font-size:13px;font-weight:700;padding:7px 12px;border-radius:9px;
+  background:var(--surface);color:var(--ink);border:1px solid var(--line);cursor:pointer}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cal-dow{text-align:center;font-size:11px;font-weight:800;color:var(--dim);padding:2px 0 4px}
+.cal-dow.sun{color:var(--sq)}
+.cal-cell{min-height:62px;border-radius:8px;padding:5px 4px;background:var(--surface);
+  border:1px solid transparent;border-left:3px solid var(--acc,var(--line));
+  display:flex;flex-direction:column;gap:1px;cursor:pointer;overflow:hidden}
+.cal-cell.pad,.cal-cell.blank{background:transparent;border-color:transparent;cursor:default}
+.cal-cell.blank b{color:var(--dim);font-weight:600}
+.cal-cell.rest{background:transparent;border-left-color:var(--line);border:1px dashed var(--line)}
+.cal-cell.today{border-color:var(--ink);background:var(--raised)}
+.cal-cell b{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1}
+.cal-cell.sun b{color:var(--sq)}
+.cal-cell i{font-style:normal;font-size:9.5px;font-weight:800;color:var(--acc,var(--mute));
+  letter-spacing:-.02em}
+.cal-cell span{font-size:9.5px;line-height:1.25;color:var(--mute);word-break:keep-all}
+.cal-cell em{font-style:normal;font-size:9px;font-weight:800;color:var(--dim);margin-top:auto}
+.cal-now{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  padding:13px 14px;margin:0 0 13px}
+.cal-now b{display:block;font-size:19px;font-weight:800;letter-spacing:-.02em}
+.cal-now p{margin:3px 0 0;font-size:12.5px;color:var(--mute)}
+.cal-fix{margin-top:11px}
+.cal-fix summary{font-size:12px;font-weight:700;color:var(--mute);cursor:pointer}
+.cal-days{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.cal-days button{font:inherit;font-size:12px;font-weight:700;padding:8px 11px;border-radius:9px;
+  background:var(--raised);color:var(--ink);border:1px solid var(--line);cursor:pointer}
+.cal-days button.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 
 /* ── 인터벌 타이머 ─────────────────────────────────────────────── */
 .tm-go{display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:12px;font-weight:700;
@@ -978,6 +1044,89 @@ function dayHTML(d,week){
     ${d.main?liftCard(d.main,week,mainRow?S(mainRow):null):""}${notesHTML(d.pre)}${body}
     <div class="total"><span>세트 합계</span><b class="num">${done!==d.total?`${done} <i style="font-style:normal;font-weight:600;color:var(--mute);font-size:13px">/ 설계 ${d.total}</i>`:d.total}</b></div>${holdBox}${notesHTML(d.notes)}`;
 }
+/* ── 달력 ─────────────────────────────────────────────────────────
+   8일 주기는 요일과 어긋나므로 '오늘 몇 일차인지'가 날짜로만 풀린다.
+   기준점은 엑셀 증량기록의 '날짜 (1일차)'. 하루 빠뜨려 밀렸으면
+   앱에서 '오늘 = N일차'로 다시 맞춘다 — 그 값은 이 폰에만 저장된다. */
+const DOW="일월화수목금토";
+const ymd = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")
+                 +"-"+String(d.getDate()).padStart(2,"0");
+const ymdParse = t => { const p=t.split("-").map(Number); return new Date(p[0],p[1]-1,p[2]); };
+const dayGap = (a,b) => Math.round((ymdParse(a)-ymdParse(b))/86400000);
+const AKEY="wk-anchor";
+let ANCHOR=D.anchor||null;
+try{ const o=JSON.parse(localStorage.getItem(AKEY)||"null"); if(o&&o.date) ANCHOR=o; }catch(e){}
+const saveAnchor = () => { try{ localStorage.setItem(AKEY,JSON.stringify(ANCHOR)); }catch(e){} };
+
+/* 날짜 → 그 날의 일차와 사이클 */
+function cycleOf(t){
+  if(!ANCHOR) return null;
+  const L=D.homeOrder.length, n=dayGap(t,ANCHOR.date);
+  return {day: D.homeOrder[((n%L)+L)%L],
+          cycle: ANCHOR.cycle + Math.floor(n/L)};
+}
+const PLANMAP={}; D.plan.rows.forEach(([d,c,n])=>{ PLANMAP[d]={c:c,n:n}; });
+const shortLabel = d => (PLANMAP[d]?PLANMAP[d].c:d).replace(/\s*\([^)]*\)/g,"").trim();
+const accentOf = d => { const h=D.home[d]; return h&&h.main&&LIFT[h.main]?LIFT[h.main].accent:""; };
+
+let calYM=null;
+function calHTML(){
+  const now=new Date(), tKey=ymd(now), cur=cycleOf(tKey);
+  const ym=calYM||{y:now.getFullYear(),m:now.getMonth()};
+  const first=new Date(ym.y,ym.m,1), last=new Date(ym.y,ym.m+1,0);
+
+  const head = cur
+    ? `<div class="cal-now"><b>${cur.cycle}사이클 ${cur.day}일차 · ${esc(PLANMAP[cur.day]?PLANMAP[cur.day].c:"")}</b>
+        <p>오늘 ${now.getMonth()+1}월 ${now.getDate()}일 (${DOW[now.getDay()]})${
+          PLANMAP[cur.day]&&PLANMAP[cur.day].n?` · ${PLANMAP[cur.day].n}세트`:""}${
+          D.home[cur.day]&&D.home[cur.day].main
+            ? ` · ${esc(LIFT[D.home[cur.day].main].ko)} ${fmt(workWeight(D.home[cur.day].main,Math.min(WEEKS,Math.max(1,cur.cycle))))}kg`:""}</p>
+       ${anchorFix(cur)}</div>`
+    : `<div class="cal-now"><b>기준 날짜가 없다</b>
+        <p>오늘이 몇 일차인지 한 번만 눌러주면 그 뒤로는 날짜로 자동 계산된다.
+           (엑셀 증량기록 '날짜 (1일차)' 열에 적어두면 폰을 바꿔도 유지된다)</p>
+       ${anchorFix(null)}</div>`;
+
+  const cells=[];
+  for(let i=0;i<first.getDay();i++) cells.push(`<div class="cal-cell pad"></div>`);
+  for(let dnum=1;dnum<=last.getDate();dnum++){
+    const d=new Date(ym.y,ym.m,dnum), key=ymd(d);
+    /* 기준일 이전은 계산하지 않는다 — 8일 주기를 돌기 전이라 그때의 일차는 이 표가 알 수 없다 */
+    const c=(ANCHOR&&dayGap(key,ANCHOR.date)>=0)?cycleOf(key):null;
+    const dow=d.getDay(), lab=c?shortLabel(c.day):"";
+    const rest=c&&PLANMAP[c.day]&&PLANMAP[c.day].n===0;
+    const acc=c?accentOf(c.day):"";
+    cells.push(`<div class="cal-cell${c?"":" blank"}${key===tKey?" today":""}${rest?" rest":""}${dow===0?" sun":""}"
+      ${c?`data-cal="${c.day}" data-cyc="${c.cycle}"`:""} style="${acc?`--acc:${acc}`:""}">
+      <b>${dnum}</b>${c?`<i${acc?` style="color:${acc}"`:""}>${c.day}일차</i>
+      <span>${esc(lab)}</span>${c.day===D.homeOrder[0]?`<em>${c.cycle}사이클</em>`:""}`:""}</div>`);
+  }
+
+  return `<h2 class="daytitle">달력</h2>
+  <p class="daysub">8일 주기는 요일과 어긋난다 — 오늘 무엇을 하는지는 날짜가 정한다. 칸을 누르면 그 일차로 간다.</p>
+  ${head}
+  <div class="cal-bar"><button id="cal-prev">‹</button>
+    <h3>${ym.y}년 ${ym.m+1}월</h3>
+    <button id="cal-today">오늘</button><button id="cal-next">›</button></div>
+  <div class="cal-grid">${[...DOW].map((w,i)=>`<div class="cal-dow${i===0?" sun":""}">${w}</div>`).join("")}
+    ${cells.join("")}</div>`;
+}
+function anchorFix(cur){
+  return `<details class="cal-fix"><summary>${cur?"주기가 밀렸다면 — 오늘을 다른 일차로":"오늘은 몇 일차인가"}</summary>
+    <div class="cal-days">${D.homeOrder.map(d=>
+      `<button data-setday="${d}"${cur&&cur.day===d?' class="on"':""}>${d}일차 ${esc(shortLabel(d))}</button>`).join("")}</div>
+    ${D.anchor?`<div class="cal-days"><button data-setday="__xl">엑셀 기준으로 되돌리기</button></div>`:""}</details>`;
+}
+/* 오늘을 N일차로 맞춘다 — 기준 날짜를 거꾸로 계산해 저장한다 */
+function setToday(d){
+  const L=D.homeOrder.length, i=D.homeOrder.indexOf(d);
+  if(i<0) return;
+  const back=new Date(); back.setDate(back.getDate()-i);
+  const cur=cycleOf(ymd(new Date()));
+  ANCHOR={date:ymd(back), cycle:(cur?cur.cycle:(D.config.week||1))};
+  saveAnchor();
+}
+
 function checkHTML(){
   return `<h2 class="daytitle">세트 검산</h2>
   <p class="daysub">세트는 근육군 단위로 센다. 실질 = 직접 + 간접 추정.</p>
@@ -1351,6 +1500,22 @@ function bindEdits(){
   document.querySelectorAll("[data-exkey]").forEach(el=>{ el.onclick=()=>editEx(el); });
   const rb=document.getElementById("ov-reset");
   if(rb) rb.onclick=()=>{ OV={lifts:{},ex:{}}; saveOV(); render(); };
+  const cp=document.getElementById("cal-prev"), cn=document.getElementById("cal-next"),
+        ct=document.getElementById("cal-today");
+  const shift=n=>{ const now=new Date(), b=calYM||{y:now.getFullYear(),m:now.getMonth()};
+    const d=new Date(b.y,b.m+n,1); calYM={y:d.getFullYear(),m:d.getMonth()}; render(); };
+  if(cp) cp.onclick=()=>shift(-1);
+  if(cn) cn.onclick=()=>shift(1);
+  if(ct) ct.onclick=()=>{ calYM=null; render(); };
+  document.querySelectorAll("[data-setday]").forEach(el=>{ el.onclick=()=>{
+    const v=el.dataset.setday;
+    if(v==="__xl"){ ANCHOR=D.anchor; try{ localStorage.removeItem(AKEY); }catch(e){} }
+    else setToday(v);
+    render(); }; });
+  document.querySelectorAll("[data-cal]").forEach(el=>{ el.onclick=()=>{
+    const c=Number(el.dataset.cyc);
+    if(c>=1&&c<=WEEKS) week=c;
+    tab=el.dataset.cal; render(); window.scrollTo({top:0}); }; });
   /* data-tm="" = 세션 처음부터 · data-tm="종목명" = 그 종목부터 */
   document.querySelectorAll("[data-tm]").forEach(el=>{ el.onclick=()=>{
     const d=(mode==="home"?D.home:D.back)[tab];
@@ -1359,7 +1524,7 @@ function bindEdits(){
 
 let mode="home", week=D.config.week||1, tab=D.homeOrder[0];
 const tabsFor = m => (m==="home"
-  ? D.homeOrder.map(d=>[d,d+"일"]).concat([["plan","주기"],["prog","증량"],["check","검산"]])
+  ? D.homeOrder.map(d=>[d,d+"일"]).concat([["cal","달력"],["plan","주기"],["prog","증량"],["check","검산"]])
   : D.backOrder.map(d=>[d,d]).concat([["bplan","주간"],["check","검산"]]));
 
 function render(){
@@ -1378,7 +1543,8 @@ function render(){
   document.getElementById("wk-up").disabled=week>=WEEKS;
   const set = mode==="home"?D.home:D.back;
   let html;
-  if(tab==="check") html=checkHTML();
+  if(tab==="cal") html=calHTML();
+  else if(tab==="check") html=checkHTML();
   else if(tab==="plan") html=planHTML();
   else if(tab==="prog") html=progressHTML(week);
   else if(tab==="bplan") html=backPlanHTML();
@@ -1386,7 +1552,7 @@ function render(){
   document.getElementById("app").innerHTML = html + ovHTML() +
     `<p class="footnote">원본: ${esc(D.source)} · 중량은 시트와 동일한 계산식(MROUND 2.5kg, 웜업 40/60/75/90%)으로 산출됩니다. 중량 숫자를 탭하면 이 폰에서만 고칠 수 있습니다.</p>`;
   bindEdits();
-  try{ localStorage.setItem("wk-prog", JSON.stringify({mode,week,tab})); }catch(e){}
+  try{ localStorage.setItem("wk-prog", JSON.stringify({mode,week,tab,on:ymd(new Date())})); }catch(e){}
 }
 const tmMuteBtn=document.getElementById("tm-mute");
 const tmMutePaint=()=>{ tmMuteBtn.textContent=voiceOn?"\uD83D\uDD0A":"\uD83D\uDD07";
@@ -1414,7 +1580,11 @@ document.getElementById("m-back").onclick=()=>{mode="back";tab=D.backOrder[0];
   document.getElementById("m-home").setAttribute("aria-pressed","false");render();};
 try{
   const st=JSON.parse(localStorage.getItem("wk-prog")||"null");
-  if(st&&st.mode){ mode=st.mode; week=Math.min(st.week||1,WEEKS); tab=st.tab||tab;
+  /* 날짜가 바뀐 뒤 처음 열면 오늘 할 일차로 간다 — 8일 주기는 요일로 못 세니까 */
+  const cur0=cycleOf(ymd(new Date()));
+  if(cur0&&(!st||st.on!==ymd(new Date()))&&(!st||st.mode!=="back")){
+    tab=cur0.day; week=Math.min(WEEKS,Math.max(1,cur0.cycle));
+  } else if(st&&st.mode){ mode=st.mode; week=Math.min(st.week||1,WEEKS); tab=st.tab||tab;
     document.getElementById("m-home").setAttribute("aria-pressed",mode==="home");
     document.getElementById("m-back").setAttribute("aria-pressed",mode==="back"); }
 }catch(e){}

@@ -36,21 +36,25 @@ for _stream in (sys.stdout, sys.stderr):
 
 
 # ── 시트 이름 규약 ────────────────────────────────────────────────
-# 재택 요일 시트는 '<요일>_<내용>' 이면 무엇이든 잡는다. '월_등'도 '월_당기기A'도 된다.
-# 5일 → 6일처럼 분할이 통째로 바뀌어도 여기를 고칠 필요가 없다.
+# 재택 시트는 'D<일차>_<내용>' (8일 주기) 또는 '<요일>_<내용>' (구 주 단위) 둘 다 잡는다.
+# 2026-08-28에 8일 주기로 옮기며 D1~D8 형태가 현행이 됐고, 요일 형태는 옛 워크북 호환용이다.
 WEEKDAYS = "월화수목금토일"
-DAY_SHEET = re.compile(r"^([월화수목금토일])_")
+DAY_SHEET = re.compile(r"^(?:D(\d+)|([월화수목금토일]))_")
 BACK_DAYS = [("화", "복귀_화_상체밀기"), ("토", "복귀_토_하체"), ("일", "복귀_일_등")]
 
 
 def home_days(wb):
-    """재택 요일 시트를 [(요일, 시트명)] 로. '복귀_'는 앞글자가 요일이 아니라 걸리지 않는다."""
+    """재택 시트를 [(라벨, 시트명)] 로. '복귀_'는 앞이 D숫자도 요일도 아니라 걸리지 않는다.
+
+    8일 주기 시트('D5_당기기B')는 라벨이 '5', 구 요일 시트('목_당기기B')는 '목'이다.
+    정렬 키만 갈라두면 나머지 코드는 라벨을 문자열로만 다루므로 손댈 곳이 없다."""
     found = []
     for name in wb.sheetnames:
         m = DAY_SHEET.match(name)
         if m:
-            found.append((m.group(1), name))
-    return sorted(found, key=lambda p: WEEKDAYS.index(p[0]))
+            found.append((m.group(1) or m.group(2), name))
+    return sorted(found, key=lambda p: int(p[0]) if p[0].isdigit()
+                  else WEEKDAYS.index(p[0]))
 
 LIFT_KEYS = {"스쿼트": "squat", "데드리프트": "dead",
              "벤치프레스": "bench", "밀리터리 프레스": "press"}
@@ -308,6 +312,9 @@ def parse_day(ws):
                 "w":   d or "—",
                 "s":   int(num(ws.cell(r, C("세트")).value)),
                 "r":   s(ws.cell(r, C("횟수")).value),
+                # 인터벌 타이머용. 이 열이 없는 워크북(복귀 시트)은 0 = 타이머 없음
+                "wk":  int(num(ws.cell(r, C("수행(초)")).value)) if C("수행(초)") else 0,
+                "rt":  int(num(ws.cell(r, C("휴식(초)")).value)) if C("휴식(초)") else 0,
                 "memo": s(ws.cell(r, C("메모")).value) if C("메모") else "",
                 "alt": s(ws.cell(r, C("대체 종목")).value) if C("대체 종목") else "",
                 "ind": s(ws.cell(r, C("간접 자극")).value) if C("간접 자극") else "",
@@ -392,7 +399,8 @@ def parse_notes_block(ws, start_row, default_head="메모"):
 def parse_plan(wb):
     """주간계획. 열 위치는 머리글로 찾는다 — 6일판은 '메인 리프트' 열이 끼어들어 세트가 E열로 밀렸다."""
     ws = wb["주간계획"]
-    hdr = next((r for r in range(1, 12) if s(ws.cell(r, 1).value) == "요일"), 4)
+    hdr = next((r for r in range(1, 12)
+                if s(ws.cell(r, 1).value) in ("일차", "요일")), 4)
     cols = {s(ws.cell(hdr, c).value): c for c in range(1, ws.max_column + 1)}
     c_body = cols.get("내용", 2)
     c_sets = cols.get("세트") or cols.get("예상 세트") or 4
@@ -483,7 +491,7 @@ def parse_config(wb):
         }
     weeks = 0
     for r in range(10, 60):
-        if s(gr.cell(r, 1).value).endswith("주차"):
+        if s(gr.cell(r, 1).value).endswith(("사이클", "주차")):
             weeks += 1
         elif weeks:
             break
@@ -504,7 +512,8 @@ def build(xlsx_path, out_path):
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     home = home_days(wb)
     if not home:
-        sys.exit("재택 요일 시트를 찾을 수 없습니다. 시트 이름이 '월_등' 처럼 '요일_내용' 이어야 합니다.")
+        sys.exit("재택 일차 시트를 찾을 수 없습니다. "
+                 "시트 이름이 'D1_당기기A' 처럼 'D<일차>_<내용>' 이어야 합니다.")
     missing = [n for _, n in BACK_DAYS if n not in wb.sheetnames]
     if missing:
         sys.exit("시트를 찾을 수 없습니다: " + ", ".join(missing))
@@ -553,8 +562,9 @@ def build(xlsx_path, out_path):
     if made:
         print(f"       아이콘 생성: {', '.join(made)}")
     train = sum(1 for _, _, n in data["plan"]["rows"] if n)
-    print(f"  훈련 {train}일 · 주간 {data['plan']['total']}세트 "
-          f"· {data['config']['weeks']}주 계획")
+    print(f"  훈련 {train}일 · 사이클당 {data['plan']['total']}세트 "
+          f"(주당 환산 {round(data['plan']['total'] * 7 / 8)}) "
+          f"· {data['config']['weeks']}사이클 계획")
     if data["ramp"]:
         vw = data["config"]["week"] + RAMP_WEEK_OFFSET
         print("  볼륨램프(종목 복귀): " + " / ".join(
@@ -734,6 +744,38 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .ovbox li{font-size:12.5px;color:var(--mute);line-height:1.65}
 .ovbox button{font:inherit;font-size:12px;font-weight:700;padding:7px 12px;border-radius:9px;
   background:transparent;color:var(--sq);border:1px solid var(--sq);cursor:pointer}
+
+/* ── 인터벌 타이머 ─────────────────────────────────────────────── */
+.tm-go{display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:12px;font-weight:700;
+  padding:6px 12px;border-radius:999px;background:var(--raised);color:var(--ink);
+  border:1px solid var(--line);cursor:pointer}
+.tm-go b{font-variant-numeric:tabular-nums;color:var(--mute);font-weight:600}
+.ex-go{margin:10px 0 0}
+.day-go{display:block;width:100%;margin:0 0 15px;padding:14px;border:0;border-radius:13px;
+  background:var(--mp);color:#fff;font:inherit;font-size:15px;font-weight:800;cursor:pointer}
+#tm{position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column;
+  padding:calc(env(safe-area-inset-top) + 12px) 18px calc(env(safe-area-inset-bottom) + 18px)}
+#tm[hidden]{display:none}
+.tm-top{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  font-size:12.5px;font-weight:700;color:var(--mute)}
+.tm-top button{font:inherit;font-size:21px;line-height:1;background:none;border:0;
+  color:var(--mute);padding:2px 6px;cursor:pointer}
+.tm-body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;min-height:0}
+#tm-name{margin:0;font-size:25px;font-weight:800;line-height:1.25;letter-spacing:-.02em}
+#tm-meta{margin:5px 0 18px;font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums}
+.tm-dial{width:min(72vw,286px);aspect-ratio:1;border-radius:50%;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;background:var(--surface);
+  border:7px solid var(--phase,var(--line));transition:border-color .25s}
+.tm-dial span{font-size:15px;font-weight:800;letter-spacing:.03em;color:var(--phase,var(--mute))}
+.tm-dial b{font-size:clamp(46px,15vw,66px);font-weight:800;letter-spacing:-.03em;
+  font-variant-numeric:tabular-nums;line-height:1.15}
+#tm-set{margin:18px 0 0;font-size:15px;font-weight:700;color:var(--mute)}
+.tm-ctl{display:grid;grid-template-columns:1fr 1.25fr 1fr;gap:8px;margin-top:10px}
+.tm-ctl button{font:inherit;font-size:14px;font-weight:700;padding:16px 4px;border-radius:12px;
+  background:var(--surface);color:var(--ink);border:1px solid var(--line);cursor:pointer}
+.tm-ctl button.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.tm-up{margin:13px 0 0;text-align:center;font-size:12.5px;color:var(--dim);min-height:1.3em}
 </style>
 </head>
 <body>
@@ -746,14 +788,29 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
     </div>
   </div>
   <div class="weekbar" id="weekbar">
-    <button class="wk-step" id="wk-down" aria-label="이전 주">−</button>
-    <div class="wk-read"><b class="num" id="wk-num">1</b><i id="wk-of">WEEK</i></div>
-    <button class="wk-step" id="wk-up" aria-label="다음 주">+</button>
+    <button class="wk-step" id="wk-down" aria-label="이전 사이클">−</button>
+    <div class="wk-read"><b class="num" id="wk-num">1</b><i id="wk-of">CYCLE</i></div>
+    <button class="wk-step" id="wk-up" aria-label="다음 사이클">+</button>
   </div>
   <div class="wk-track" id="wk-track"></div>
   <nav id="nav"></nav>
 </header>
 <main id="app"></main>
+<div id="tm" hidden>
+  <div class="tm-top"><span id="tm-ctx"></span><button id="tm-x" aria-label="타이머 닫기">&#10005;</button></div>
+  <div class="tm-body">
+    <h3 id="tm-name"></h3>
+    <p id="tm-meta"></p>
+    <div class="tm-dial" id="tm-dial"><span id="tm-phase"></span><b id="tm-time">00:00</b></div>
+    <p id="tm-set"></p>
+  </div>
+  <div class="tm-ctl">
+    <button id="tm-prev">&#9664; 이전</button>
+    <button id="tm-play" class="primary">일시정지</button>
+    <button id="tm-next">건너뛰기 &#9654;</button>
+  </div>
+  <p class="tm-up" id="tm-up"></p>
+</div>
 <script>
 const D = /*__DATA__*/ null;
 
@@ -860,6 +917,7 @@ function exHTML(e,prefix,sets){
       <div class="ex-n num">${e.n}</div>
       <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}</div></div>
       <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${ov?'edited':''}"${canEdit?` data-exkey="${escAttr(key)}"`:""}>${esc(w)}</span></div></div>
+    ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${e.wk}초 · 휴식 ${mmss(e.rt)}</b></button></div>`:""}
     ${e.memo?`<div class="ex-memo">${esc(e.memo)}</div>`:""}
     ${e.alt?`<details><summary>대체 종목</summary><p>${esc(e.alt)}</p></details>`:""}</article>`;
 }
@@ -898,7 +956,10 @@ function dayHTML(d,week){
   const bar = (on && done!==d.total) ? rampBar(all,S,d.total,done,week) : "";
   /* 메인 리프트 카드의 본세트 수는 종목표 1번 행과 같은 값을 쓴다 */
   const mainRow = all.find(e=>e.n===1 && e.name.indexOf("본세트")>=0);
-  return `<h2 class="daytitle">${esc(d.t)}</h2><p class="daysub">${esc(d.sub)}</p>${bar}
+  /* 수행/휴식 초가 한 종목이라도 있으면 세션 전체를 걸 수 있다 */
+  const go = all.some(e=>e.s!==0 && S(e)>0 && e.wk>0)
+    ? `<button class="day-go" data-tm="">&#9654; 세션 타이머 시작 · ${done}세트</button>` : "";
+  return `<h2 class="daytitle">${esc(d.t)}</h2><p class="daysub">${esc(d.sub)}</p>${bar}${go}
     ${d.main?liftCard(d.main,week,mainRow?S(mainRow):null):""}${notesHTML(d.pre)}${body}
     <div class="total"><span>세트 합계</span><b class="num">${done!==d.total?`${done} <i style="font-style:normal;font-weight:600;color:var(--mute);font-size:13px">/ 설계 ${d.total}</i>`:d.total}</b></div>${holdBox}${notesHTML(d.notes)}`;
 }
@@ -937,10 +998,10 @@ function planHTML(){
   const on=rampOn()&&sum!==p.total;
   const rows=p.rows.map(([d,c,n])=>`<tr class="${n?'':'rest'}"><td>${esc(d)}</td><td class="wrap">${esc(c)}</td>
     <td class="num">${n||"—"}</td>${on?`<td class="num" style="font-weight:800">${n?wkSets(d):"—"}</td>`:""}</tr>`).join("");
-  return `<h2 class="daytitle">주간 계획</h2><p class="daysub">${esc(p.sub)}</p>
+  return `<h2 class="daytitle">8일 주기 계획</h2><p class="daysub">${esc(p.sub)}</p>
   ${on?`<div class="rampbar"><b>볼륨 ${vWeek(week)}주차 · ${sum}세트 <span>/ 설계 ${p.total}</span></b>
       <span>오른쪽 열이 이번 주에 실제로 하는 세트다. 중량은 ${week}주차 그대로</span></div>`:""}
-  <table class="tbl"><thead><tr><th>요일</th><th style="text-align:left">내용</th><th>${on?"설계":"세트"}</th>${on?"<th>이번 주</th>":""}</tr></thead><tbody>
+  <table class="tbl"><thead><tr><th>일차</th><th style="text-align:left">내용</th><th>${on?"설계":"세트"}</th>${on?"<th>이번 주</th>":""}</tr></thead><tbody>
   ${rows}
   <tr><td style="font-weight:800">합계</td><td></td><td class="num" style="font-weight:800">${p.total}</td>${on?`<td class="num" style="font-weight:800">${sum}</td>`:""}</tr>
   </tbody></table>${rampHTML()}${notesHTML(p.notes)}`;
@@ -1020,16 +1081,233 @@ function ovHTML(){
     <ul>${items.map(t=>`<li>${esc(t)}</li>`).join("")}</ul>
     <button id="ov-reset">전부 엑셀 값으로 되돌리기</button></div>`;
 }
+/* ── 인터벌 타이머 ────────────────────────────────────────────────
+   엑셀 G·H열(수행 초 · 휴식 초)을 그대로 읽어 종목 → 세트 순으로 걷는다.
+   남은 시간은 setInterval 누적이 아니라 목표 시각과의 차로 낸다 —
+   화면이 꺼져 콜백이 밀려도 돌아왔을 때 숫자가 어긋나지 않는다.
+   화면 잠금은 Wake Lock으로 막는다. 브라우저가 백그라운드에서 소리를
+   막을 수 있으므로 화면을 켜둔 채 쓰는 것이 전제다. */
+const PH={prep:["준비","var(--bp)"],work:["운동","var(--mp)"],rest:["휴식","var(--sq)"]};
+const PREP=5;
+const mmss=v=>{const m=Math.floor(v/60),x=v%60;return (m<10?"0":"")+m+":"+(x<10?"0":"")+x;};
+let TM=null, tmInt=null, tmAC=null, tmWL=null, tmLeft=-1;
+
+function tmSteps(d,week,from){
+  const on=rampOn(), S=e=>on?setsOf(e,week):e.s;
+  const live=allEx(d).filter(e=>e.s!==0&&S(e)>0&&e.wk>0);
+  const st=[];
+  live.forEach(e=>{ const n=S(e);
+    for(let k=1;k<=n;k++){
+      st.push({p:"work",t:e.wk,e:e,set:k,sets:n});
+      if(e.rt>0) st.push({p:"rest",t:e.rt,e:e,set:k,sets:n});
+    }});
+  while(st.length&&st[st.length-1].p==="rest") st.pop();   /* 세션 끝의 휴식은 뺀다 */
+  let cut=0;
+  if(from){ const j=st.findIndex(x=>x.e.name===from); if(j>0) cut=j; }
+  const out=st.slice(cut);
+  if(out.length) out.unshift({p:"prep",t:PREP,e:out[0].e,set:out[0].set,sets:out[0].sets});
+  out.forEach(x=>{ x.li=live.indexOf(x.e)+1; x.ln=live.length; });
+  return out;
+}
+function tmW(e){
+  const d=(mode==="home"?D.home:D.back)[tab];
+  if(e.w==="위 참조"&&d&&d.main) return fmt(workWeight(d.main,week))+"kg";
+  const ov=OV.ex[mode+"|"+tab+"|"+e.name], w=String(ov?ov.w:e.w);
+  return /^[\d.~\s]+$/.test(w) ? w.replace(/\s+$/,"")+"kg" : w;
+}
+/* -- 화면이 꺼져도 알림이 울리게 하는 두 가지 --------------------
+   (1) 무음 유지음: 사람 귀에 안 들리는 아주 작은 소리를 계속 흘린다.
+       크롬은 '소리를 내는 탭'을 얼리지 않고, 타이머도 분당 1회까지 늦추지 않는다.
+       화면을 꺼도 오디오 스레드는 계속 돈다 — 웹 라디오가 꺼진 화면에서
+       계속 나오는 것과 같은 원리다.
+   (2) 미리 예약: 알림음을 JS가 그 시각에 깨어나서 울리는 게 아니라
+       오디오 시계에 90초 앞까지 미리 걸어둔다. JS가 얼마나 늦어지든
+       예약된 소리는 하드웨어가 정시에 낸다.
+   진동은 예약이 안 되고 화면이 꺼져 있으면 브라우저가 막으므로 보조 수단이다. */
+const LOOKAHEAD=90000;
+let tmKeep=null, tmPend=[], tmSchedAt=0;
+
+const tmVib=p=>{ try{ if(document.visibilityState==="visible"&&navigator.vibrate) navigator.vibrate(p); }catch(e){} };
+
+function tmKeepStart(){
+  try{
+    const b=tmAC.createBuffer(1,tmAC.sampleRate,tmAC.sampleRate), ch=b.getChannelData(0);
+    for(let i=0;i<ch.length;i++) ch[i]=(Math.random()*2-1)*2e-4;   /* -74dB — 안 들린다 */
+    tmKeep=tmAC.createBufferSource(); tmKeep.buffer=b; tmKeep.loop=true;
+    tmKeep.connect(tmAC.destination); tmKeep.start();
+  }catch(e){}
+}
+function tmAudio(){
+  if(tmAC){
+    if(tmAC.state==="suspended") tmAC.resume();
+    if(!tmKeep) tmKeepStart();
+    return tmAC;
+  }
+  try{
+    tmAC=new (window.AudioContext||window.webkitAudioContext)();
+    tmAC.resume();          /* 사용자 탭에서 만들어지지만 suspended로 나는 기기가 있다 */
+    tmKeepStart();
+  }catch(e){ tmAC=null; }
+  return tmAC;
+}
+function tmTone(f,dur,vol,at){
+  try{
+    const o=tmAC.createOscillator(), g=tmAC.createGain();
+    o.type="sine"; o.frequency.value=f;
+    g.gain.setValueAtTime(vol,at); g.gain.exponentialRampToValueAtTime(.0001,at+dur);
+    o.connect(g); g.connect(tmAC.destination);
+    o.start(at); o.stop(at+dur+.05);
+    return o;
+  }catch(e){ return null; }
+}
+function tmCueAt(kind,wall){
+  if(!tmAC) return;
+  const at=tmAC.currentTime+Math.max(0,(wall-Date.now())/1000), n=[];
+  if(kind==="work") n.push(tmTone(1046,.35,.6,at));
+  else if(kind==="rest"){ n.push(tmTone(660,.15,.5,at)); n.push(tmTone(660,.15,.5,at+.22)); }
+  else if(kind==="prep") n.push(tmTone(784,.12,.4,at));
+  else if(kind==="tick") n.push(tmTone(880,.07,.3,at));
+  else n.push(tmTone(1046,.5,.6,at));
+  tmPend.push({at:wall,kind:kind,nodes:n.filter(Boolean)});
+}
+/* 아직 안 난 예약을 모두 취소한다. 나고 있는 소리는 자르지 않는다 */
+function tmDrop(){
+  const now=Date.now(), keep=[];
+  tmPend.forEach(x=>{
+    if(x.at<=now+250){ if(x.at>now-8000) keep.push(x); return; }
+    x.nodes.forEach(o=>{ try{ o.stop(0); }catch(e){} });
+  });
+  tmPend=keep;
+}
+/* 지금부터 90초 안에 울릴 것을 전부 오디오 시계에 건다 */
+function tmSchedule(){
+  tmDrop(); tmSchedAt=Date.now();
+  if(!TM||!TM.run||!tmAC) return;
+  const now=Date.now(), lim=now+LOOKAHEAD;
+  const add=(k,at)=>{ if(at>now+250&&at<=lim) tmCueAt(k,at); };
+  let end=TM.endAt;
+  for(let i=TM.i;i<TM.st.length;i++){
+    if(i>TM.i) end+=TM.st[i].t*1000;
+    for(let k=3;k>=1;k--) add("tick",end-k*1000);
+    add(i+1<TM.st.length?TM.st[i+1].p:"done",end);
+    if(end>lim) break;
+  }
+}
+/* 방금 이 구간에 들어왔다 — 예약이 아니라 즉시 */
+function tmEnter(){
+  if(!TM) return;
+  const p=TM.st[TM.i].p;
+  tmCueAt(p,Date.now()+20);
+  tmVib(p==="work"?[350]:p==="rest"?[140,90,140]:[90]);
+  tmSchedule();
+}
+/* 잠금화면·알림창에 종목과 세트를 띄우고 거기서 일시정지할 수 있게 한다 */
+function tmMedia(){
+  if(!("mediaSession" in navigator)||!TM) return;
+  const s=TM.st[TM.i];
+  try{
+    navigator.mediaSession.metadata=new MediaMetadata({
+      title:s.e.name, artist:PH[s.p][0]+" · 세트 "+s.set+" / "+s.sets, album:TM.title});
+    navigator.mediaSession.playbackState=TM.run?"playing":"paused";
+    navigator.mediaSession.setActionHandler("play",tmPause);
+    navigator.mediaSession.setActionHandler("pause",tmPause);
+    navigator.mediaSession.setActionHandler("nexttrack",()=>tmGo(1));
+    navigator.mediaSession.setActionHandler("previoustrack",()=>tmGo(-1));
+  }catch(e){}
+}
+async function tmLock(){ try{ if("wakeLock" in navigator && !tmWL) tmWL=await navigator.wakeLock.request("screen"); }catch(e){} }
+async function tmUnlock(){ try{ if(tmWL){ const w=tmWL; tmWL=null; await w.release(); } }catch(e){} }
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState!=="visible"||!TM) return;
+  /* 돌아왔다 — 화면을 지금 시각에 맞추고 예약도 다시 건다 */
+  if(tmAC&&tmAC.state==="suspended") tmAC.resume();
+  if(TM.run){ tmLock(); tmLoop(); tmSchedule(); }
+});
+
+function tmPaint(){
+  if(!TM) return;
+  const s=TM.st[TM.i], nx=TM.st[TM.i+1], ph=PH[s.p];
+  document.getElementById("tm-dial").style.setProperty("--phase",ph[1]);
+  document.getElementById("tm-phase").textContent=ph[0];
+  document.getElementById("tm-ctx").textContent=TM.title+" · "+s.li+"/"+s.ln+" 종목";
+  document.getElementById("tm-name").textContent=s.e.name;
+  document.getElementById("tm-meta").textContent=tmW(s.e)+" · "+s.e.r+"회";
+  document.getElementById("tm-set").textContent="세트 "+s.set+" / "+s.sets;
+  document.getElementById("tm-time").textContent=
+    mmss(TM.run?Math.max(0,Math.ceil((TM.endAt-Date.now())/1000)):Math.ceil(TM.rest/1000));
+  document.getElementById("tm-play").textContent=TM.run?"일시정지":"계속";
+  document.getElementById("tm-up").textContent = !nx ? "마지막 세트"
+    : s.p==="prep" ? "이어서 ▸ 운동 "+mmss(nx.t)+" × "+nx.sets+"세트"
+    : nx.e!==s.e ? "다음 ▸ "+nx.e.name+" "+nx.sets+"세트"
+    : nx.p==="rest" ? "다음 ▸ 휴식 "+mmss(nx.t) : "다음 ▸ "+nx.set+"세트째";
+}
+function tmLoop(){
+  if(!TM||!TM.run) return;
+  const now=Date.now(); let moved=false;
+  while(TM.endAt<=now&&TM.i<TM.st.length-1){ TM.i++; TM.endAt+=TM.st[TM.i].t*1000; moved=true; }
+  if(TM.endAt<=now){ tmVib([300,120,300,120,300]); tmClose(); return; }
+  if(moved){
+    tmPaint(); tmMedia(); tmLeft=-1;
+    tmVib(TM.st[TM.i].p==="work"?[350]:TM.st[TM.i].p==="rest"?[140,90,140]:[90]);
+  }
+  /* 예약은 5초마다 다시 건다. 구간 전환 때만 걸면 휴식 150초처럼
+     예약 창(90초)보다 긴 구간의 알림이 통째로 빠진다. 다시 걸면서
+     오디오 시계와 벽시계 사이의 드리프트도 같이 잡힌다. */
+  if(moved||now-tmSchedAt>5000) tmSchedule();
+  const left=Math.max(0,Math.ceil((TM.endAt-now)/1000));
+  if(left!==tmLeft){
+    tmLeft=left;
+    document.getElementById("tm-time").textContent=mmss(left);
+  }
+}
+function tmStart(d,from){
+  const st=tmSteps(d,week,from);
+  if(!st.length) return;
+  tmAudio();
+  TM={st:st,i:0,endAt:Date.now()+st[0].t*1000,rest:0,run:true,title:d.t};
+  document.getElementById("tm").hidden=false;
+  document.body.style.overflow="hidden";
+  tmLock(); tmPaint(); tmMedia(); tmEnter(); tmLeft=-1;
+  clearInterval(tmInt); tmInt=setInterval(tmLoop,120);
+}
+function tmGo(delta){
+  if(!TM) return;
+  const j=TM.i+delta;
+  if(j<0||j>=TM.st.length) return;
+  TM.i=j; TM.endAt=Date.now()+TM.st[j].t*1000; TM.rest=TM.st[j].t*1000;
+  tmLeft=-1; tmPaint(); tmMedia();
+  if(TM.run) tmEnter(); else tmDrop();
+}
+function tmPause(){
+  if(!TM) return;
+  if(TM.run){ TM.rest=Math.max(0,TM.endAt-Date.now()); TM.run=false; tmUnlock(); tmDrop(); }
+  else { TM.endAt=Date.now()+TM.rest; TM.run=true; tmLock(); tmSchedule(); }
+  tmLeft=-1; tmPaint(); tmMedia();
+}
+function tmClose(){
+  clearInterval(tmInt); tmInt=null; TM=null; tmLeft=-1; tmUnlock(); tmDrop();
+  /* 유지음은 끊는다 — 타이머를 닫고도 계속 흘리면 배터리만 먹는다 */
+  try{ if(tmKeep){ tmKeep.stop(); tmKeep=null; } if(tmAC) tmAC.suspend(); }catch(e){}
+  try{ if("mediaSession" in navigator){ navigator.mediaSession.metadata=null;
+    navigator.mediaSession.playbackState="none"; } }catch(e){}
+  document.getElementById("tm").hidden=true;
+  document.body.style.overflow="";
+}
+
 function bindEdits(){
   document.querySelectorAll("[data-lift]").forEach(el=>{ el.onclick=()=>editLift(el); });
   document.querySelectorAll("[data-exkey]").forEach(el=>{ el.onclick=()=>editEx(el); });
   const rb=document.getElementById("ov-reset");
   if(rb) rb.onclick=()=>{ OV={lifts:{},ex:{}}; saveOV(); render(); };
+  /* data-tm="" = 세션 처음부터 · data-tm="종목명" = 그 종목부터 */
+  document.querySelectorAll("[data-tm]").forEach(el=>{ el.onclick=()=>{
+    const d=(mode==="home"?D.home:D.back)[tab];
+    if(d&&!d.rest) tmStart(d,el.dataset.tm||null); }; });
 }
 
 let mode="home", week=D.config.week||1, tab=D.homeOrder[0];
 const tabsFor = m => (m==="home"
-  ? D.homeOrder.map(d=>[d,d]).concat([["plan","주간"],["prog","증량"],["check","검산"]])
+  ? D.homeOrder.map(d=>[d,d+"일"]).concat([["plan","주기"],["prog","증량"],["check","검산"]])
   : D.backOrder.map(d=>[d,d]).concat([["bplan","주간"],["check","검산"]]));
 
 function render(){
@@ -1058,6 +1336,10 @@ function render(){
   bindEdits();
   try{ localStorage.setItem("wk-prog", JSON.stringify({mode,week,tab})); }catch(e){}
 }
+document.getElementById("tm-x").onclick=tmClose;
+document.getElementById("tm-play").onclick=tmPause;
+document.getElementById("tm-next").onclick=()=>tmGo(1);
+document.getElementById("tm-prev").onclick=()=>tmGo(-1);
 document.getElementById("ver").textContent=(D.source.match(/v\d+/)||[""])[0];
 document.getElementById("wk-up").onclick=()=>{if(week<WEEKS){week++;render();}};
 document.getElementById("wk-down").onclick=()=>{if(week>1){week--;render();}};

@@ -238,7 +238,11 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .tm-ctl button{font:inherit;font-size:14px;font-weight:700;padding:16px 4px;border-radius:12px;
   background:var(--surface);color:var(--ink);border:1px solid var(--line);cursor:pointer}
 .tm-ctl button.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
-.tm-up{margin:13px 0 0;text-align:center;font-size:12.5px;color:var(--dim);min-height:1.3em}
+.tm-up{margin:13px 0 0;text-align:center;font-size:12.5px;color:var(--dim);
+  line-height:1.55;min-height:3.2em}   /* 두 줄분을 늘 비워 둔다 — 종목이 바뀔 때
+                                          한 줄이 늘어나며 다이얼이 들썩이지 않게 */
+.tm-up b{color:var(--mute);font-weight:700;font-size:13.5px}
+.tm-up i{display:block;font-style:normal;font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -928,6 +932,9 @@ document.addEventListener("visibilitychange",()=>{
   if(TM.run){ tmLock(); tmLoop(); tmSchedule(); }
 });
 
+/* 종목 한 줄 요약. 어느 근육을 쓰는지 · 몇 kg · 몇 회 — 상단과 하단이
+   같은 함수를 쓰므로 한쪽만 형식이 어긋날 일이 없다. */
+const tmMeta = e => [e.mg, tmW(e), e.r+"회"].filter(Boolean).join(" · ");
 function tmPaint(){
   if(!TM) return;
   const s=TM.st[TM.i], nx=TM.st[TM.i+1], ph=PH[s.p];
@@ -935,14 +942,19 @@ function tmPaint(){
   document.getElementById("tm-phase").textContent=ph[0];
   document.getElementById("tm-ctx").textContent=TM.title+" · "+s.li+"/"+s.ln+" 종목";
   document.getElementById("tm-name").textContent=s.e.name;
-  document.getElementById("tm-meta").textContent=tmW(s.e)+" · "+s.e.r+"회";
+  document.getElementById("tm-meta").textContent=tmMeta(s.e);
   document.getElementById("tm-set").textContent="세트 "+s.set+" / "+s.sets;
   document.getElementById("tm-time").textContent=
     mmss(TM.run?Math.max(0,Math.ceil((TM.endAt-Date.now())/1000)):Math.ceil(TM.rest/1000));
   document.getElementById("tm-play").textContent=TM.run?"일시정지":"계속";
-  document.getElementById("tm-up").textContent = !nx ? "마지막 세트"
+  const up=document.getElementById("tm-up");
+  if(nx&&nx.e!==s.e)
+    /* 종목이 바뀐다 — 쉬는 동안 눈으로도 확인하게 상단과 같은 형식으로 적는다.
+       읊어 주는 내용과 같다. 소리를 껐거나 못 들었을 때의 몫이기도 하다. */
+    up.innerHTML="다음 ▸ <b>"+esc(nx.e.name)+"</b><i>"
+                +esc(tmMeta(nx.e))+" · "+nx.sets+"세트</i>";
+  else up.textContent = !nx ? "마지막 세트"
     : s.p==="prep" ? "이어서 ▸ 운동 "+mmss(nx.t)+" × "+nx.sets+"세트"
-    : nx.e!==s.e ? "다음 ▸ "+nx.e.name+" "+nx.sets+"세트"
     : nx.p==="rest" ? "다음 ▸ 휴식 "+mmss(nx.t) : "다음 ▸ "+nx.set+"세트째";
 }
 function tmLoop(){

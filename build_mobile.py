@@ -802,6 +802,11 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
   letter-spacing:-.02em}
 .cal-cell span{font-size:9.5px;line-height:1.25;color:var(--mute);word-break:keep-all}
 .cal-cell em{font-style:normal;font-size:9px;font-weight:800;color:var(--dim);margin-top:auto}
+.cal-key{display:flex;flex-wrap:wrap;gap:5px 12px;margin:13px 2px 0}
+.cal-key span{display:inline-flex;align-items:center;gap:5px;font-size:11px;
+  font-weight:700;color:var(--mute)}
+.cal-key i{width:9px;height:9px;border-radius:3px;flex:none}
+.cal-key b{font-weight:700;color:var(--dim)}
 .cal-now{background:var(--surface);border:1px solid var(--line);border-radius:12px;
   padding:13px 14px;margin:0 0 13px}
 .cal-now b{display:block;font-size:19px;font-weight:800;letter-spacing:-.02em}
@@ -1067,7 +1072,20 @@ function cycleOf(t){
 }
 const PLANMAP={}; D.plan.rows.forEach(([d,c,n])=>{ PLANMAP[d]={c:c,n:n}; });
 const shortLabel = d => (PLANMAP[d]?PLANMAP[d].c:d).replace(/\s*\([^)]*\)/g,"").trim();
-const accentOf = d => { const h=D.home[d]; return h&&h.main&&LIFT[h.main]?LIFT[h.main].accent:""; };
+/* 일차별 색. 메인 리프트가 있는 날은 그 종목 색(빨강 스쿼트 · 파랑 데드 ·
+   노랑 벤치 · 초록 밀리터리)을 쓰고, 없는 날은 남은 색을 순서대로 받는다.
+   이웃한 일차끼리 색이 겹치지 않는 것이 목적이다 — 8일차 다음이 1일차라
+   둘이 같은 색이면 사이클이 넘어간 건지 알 수 없다. */
+const EXTRA=["#2BA6BF","#8A6CE0","#CE6BA5","#B08442"];
+const DAYACC={};
+(function(){ let i=0;
+  D.homeOrder.forEach(d=>{
+    const h=D.home[d];
+    if(!h||h.rest) return;
+    DAYACC[d] = (h.main&&LIFT[h.main]) ? LIFT[h.main].accent : EXTRA[i++%EXTRA.length];
+  });
+})();
+const accentOf = d => DAYACC[d]||"";
 
 let calYM=null;
 function calHTML(){
@@ -1109,7 +1127,13 @@ function calHTML(){
     <h3>${ym.y}년 ${ym.m+1}월</h3>
     <button id="cal-today">오늘</button><button id="cal-next">›</button></div>
   <div class="cal-grid">${[...DOW].map((w,i)=>`<div class="cal-dow${i===0?" sun":""}">${w}</div>`).join("")}
-    ${cells.join("")}</div>`;
+    ${cells.join("")}</div>
+  <div class="cal-key">${D.homeOrder.map(d=>{
+    const h=D.home[d], acc=accentOf(d);
+    return `<span><i style="background:${acc||"transparent"};${
+      acc?"":"border:1px dashed var(--line)"}"></i>${d} ${esc(shortLabel(d))}${
+      h&&h.main&&LIFT[h.main]?` <b>${esc(LIFT[h.main].ko)}</b>`:""}</span>`;
+  }).join("")}</div>`;
 }
 function anchorFix(cur){
   return `<details class="cal-fix"><summary>${cur?"주기가 밀렸다면 — 오늘을 다른 일차로":"오늘은 몇 일차인가"}</summary>

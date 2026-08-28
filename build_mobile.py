@@ -21,6 +21,8 @@
 import argparse, datetime, json, re, sys
 from pathlib import Path
 
+import voice_build
+
 try:
     import openpyxl
 except ImportError:
@@ -146,23 +148,48 @@ SW_JS = """\
 const VERSION = "__VERSION__";
 const CACHE = "workout-" + VERSION;
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest",
-                "./icon-192.png", "./icon-512.png",
-                "./voice/prep.wav", "./voice/work.wav",
-                "./voice/rest.wav", "./voice/done.wav"];
+                "./icon-192.png", "./icon-512.png"];
+
+/* 말소리는 몇 MB짜리 한 덩어리이고, 워크북을 고쳐도 하는 말은 거의 그대로다.
+   버전 캐시에 같이 넣으면 표 한 줄 고칠 때마다 폰이 그걸 통째로 다시 받는다.
+   그래서 파일 이름에 내용 해시를 박아 따로 보관한다 — 하는 말이 바뀔 때만
+   이름이 바뀌고, 그때만 새로 받는다. */
+const VOICE_CACHE = "workout-voice";
+const VOICE = "__VOICE__";
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS))
-                                .then(() => self.skipWaiting()));
+  e.waitUntil(Promise.all([
+    caches.open(CACHE).then(c => c.addAll(ASSETS)),
+    VOICE ? caches.open(VOICE_CACHE)
+              .then(c => c.match(VOICE).then(hit => hit || c.add(VOICE)))
+              .catch(() => null)
+          : null
+  ]).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys()
-    .then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    .then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== VOICE_CACHE)
+                              .map(k => caches.delete(k))))
+    .then(() => caches.open(VOICE_CACHE))
+    .then(c => c.keys().then(rs => Promise.all(      /* 지난 말소리는 버린다 */
+      rs.filter(r => !VOICE || !r.url.endsWith(VOICE.slice(2)))
+        .map(r => c.delete(r)))))
     .then(() => self.clients.claim()));
 });
 
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
+  /* 말소리만은 캐시 우선이다. 파일 이름이 곧 내용이라 한 번 받으면 다시 받을
+     이유가 없고, 네트워크 우선으로 두면 앱을 열 때마다 몇 MB가 샌다. */
+  if (e.request.url.indexOf("/voice/") >= 0) {
+    e.respondWith(caches.open(VOICE_CACHE).then(c =>
+      c.match(e.request).then(hit => hit || fetch(e.request).then(res => {
+        c.put(e.request, res.clone());
+        return res;
+      }))));
+    return;
+  }
   e.respondWith(
     fetch(e.request).then(res => {
       const copy = res.clone();
@@ -174,7 +201,7 @@ self.addEventListener("fetch", e => {
 """
 
 
-def write_pwa_assets(site, html):
+def write_pwa_assets(site, html, voice_src):
     """manifest·아이콘·service worker를 배포 폴더에 쓴다. 아이콘은 내용이 고정이라 없을 때만 만든다."""
     manifest = {
         "name": "운동 프로그램",
@@ -204,7 +231,10 @@ def write_pwa_assets(site, html):
 
     import hashlib
     version = hashlib.sha1(html.encode("utf-8")).hexdigest()[:12]
-    (site / "sw.js").write_text(SW_JS.replace("__VERSION__", version), encoding="utf-8")
+    (site / "sw.js").write_text(
+        SW_JS.replace("__VERSION__", version)
+             .replace("__VOICE__", "./" + voice_src if voice_src else ""),
+        encoding="utf-8")
     return made, version
 
 
@@ -543,6 +573,59 @@ def all_ex(day):
     return (day.get("ex") or []) + [x for _, g in (day.get("groups") or []) for x in g]
 
 
+def build_voice(site, data):
+    """'다음 종목' 안내에 쓸 말소리를 굽고 스프라이트 한 덩어리로 묶는다.
+
+    통째로 구울 수 있는 건 통째로 굽는다 — 종목 이름, 근육군, 그리고
+    '맨몸'처럼 숫자가 아닌 칸. 반대로 숫자는 조각으로만 굽는다.
+    중량은 주차마다 오르고 앱에서도 고칠 수 있어서 미리 구워 둘 수가 없다.
+    그래서 0~99와 백 단위, '점오', '킬로 · 세트 · 회 · 에서'를 따로 두고
+    앱이 그 순간의 값으로 이어 붙인다 — voice_build.py 머리말 참조.
+
+    SAPI가 없어 못 구우면 지난 번 결과(sprite.json)를 그대로 쓴다.
+    """
+    say = {}
+    for src in ("home", "back"):
+        for day in data.get(src, {}).values():
+            for e in all_ex(day):
+                for raw, fn in ((e.get("name", ""), voice_build.say_name),
+                                (e.get("mg", ""), voice_build.say_mg)):
+                    if raw and raw not in say:
+                        say[raw] = fn(raw)
+                # 숫자·범위는 앱이 조립한다. 여기서 굽는 건 예외 표기뿐이다
+                for raw, fn in ((str(e.get("r", "")), voice_build.say_reps),
+                                (str(e.get("w", "")), voice_build.say_weight)):
+                    if (raw and raw not in say and raw != "위 참조"
+                            and not voice_build.is_plain_number(raw)):
+                        say[raw] = fn(raw)
+
+    for n in range(100):                                  # 0~99
+        say.setdefault(voice_build.sino(n), voice_build.sino(n))
+    for h in range(1, 10):                                # 백 ~ 구백
+        say.setdefault(voice_build.hundreds(h), voice_build.hundreds(h))
+    for w in list(voice_build.FRAC.values()) + ["점"] + voice_build.UNITS:
+        say.setdefault(w, w)
+
+    say = {k: v for k, v in say.items() if v}
+    # 삐 소리 뒤에 붙는 네 마디는 이미 구워져 있다. 다시 굽지 않고 그대로 넣는다 —
+    # 새로 구우면 지금 쓰는 말투와 미묘하게 달라진다.
+    old = {k: site / "voice" / (k + ".wav") for k in ("prep", "work", "rest", "done")}
+    old = {k: v for k, v in old.items() if v.exists()}
+
+    src, offs = voice_build.build(site, say, old)
+    keep = site / "voice" / "sprite.json"
+    if src:
+        voice = {"src": src, "map": offs}
+        keep.write_text(json.dumps(voice, ensure_ascii=False), encoding="utf-8")
+        return voice
+    if keep.exists():          # 이번엔 못 구웠다 — 지난 번 것을 지킨다
+        try:
+            return json.loads(keep.read_text(encoding="utf-8"))
+        except ValueError:
+            pass
+    return None
+
+
 def build(xlsx_path, out_path):
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     home = home_days(wb)
@@ -582,16 +665,20 @@ def build(xlsx_path, out_path):
     data["homeOrder"] = order or [l for l, _ in home]
     data["backOrder"] = [l for l, _ in BACK_DAYS]
 
-    html = TEMPLATE.replace("/*__DATA__*/ null",
-                            json.dumps(data, ensure_ascii=False))
-    Path(out_path).write_text(html, encoding="utf-8")
-
     # 배포용 사본. 파일명을 index.html로 고정해야 사이트 주소 루트가 열리고,
     # 워크북이 v15, v16으로 올라가도 폰 홈화면 바로가기가 안 깨진다.
     site = Path(xlsx_path).resolve().parent / "docs"
     site.mkdir(exist_ok=True)
+
+    # 말소리는 표보다 먼저 만든다 — 어느 구간이 무슨 말인지가 HTML에 실린다
+    data["voice"] = build_voice(site, data)
+
+    html = TEMPLATE.replace("/*__DATA__*/ null",
+                            json.dumps(data, ensure_ascii=False))
+    Path(out_path).write_text(html, encoding="utf-8")
     (site / "index.html").write_text(html, encoding="utf-8")
-    made, version = write_pwa_assets(site, html)
+    made, version = write_pwa_assets(site, html,
+                                     data["voice"] and data["voice"]["src"])
 
     print(f"완료 → {out_path}")
     print(f"       {site / 'index.html'}  (배포용, 캐시버전 {version})")
@@ -1319,27 +1406,110 @@ let tmKeep=null, tmPend=[], tmSchedAt=0, tmIdle=null;
    기기 TTS(speechSynthesis)를 안 쓰는 이유: 화면이 꺼지면 크롬이
    not-allowed로 통째로 거부한다 — 정작 필요한 순간에 안 나온다.
    미리 구운 wav라 화면이 꺼져 있어도 예약대로 난다. */
-const VSRC={prep:"voice/prep.wav",work:"voice/work.wav",
-            rest:"voice/rest.wav",done:"voice/done.wav"};
-const VOICE={};
+/* 말은 한 파일에 죽 이어 붙여 두고(스프라이트) 필요한 구간만 잘라 쓴다.
+   조각을 파일로 두면 종목 이름·숫자까지 200개가 넘어 첫 방문에 요청이
+   200번 난다. V.map["랫풀다운"] = [시작초, 길이초] — 그게 전부다. */
+const V=D.voice||null;
+let vBuf=null, vBusy=false;
 let voiceOn=true; try{ voiceOn=localStorage.getItem("wk-voice")!=="0"; }catch(e){}
 function tmVoiceLoad(){
-  if(!tmAC) return;
-  for(const k in VSRC){
-    if(k in VOICE) continue;
-    VOICE[k]=null;                                  /* 중복 요청 방지 */
-    fetch(VSRC[k]).then(r=>r.arrayBuffer()).then(b=>tmAC.decodeAudioData(b))
-      .then(buf=>{ VOICE[k]=buf; if(TM&&TM.run) tmSchedule(); })
-      .catch(()=>{ delete VOICE[k]; });              /* 못 받으면 삐 소리만 */
-  }
+  if(!tmAC||!V||vBuf||vBusy) return;
+  vBusy=true;
+  fetch(V.src).then(r=>r.arrayBuffer()).then(b=>tmAC.decodeAudioData(b))
+    .then(buf=>{ vBuf=buf; if(TM&&TM.run) tmSchedule(); })
+    .catch(()=>{ vBusy=false; });                    /* 못 받으면 삐 소리만 */
 }
+const tmHas = k => !!(V&&V.map[k]);
+const tmDur = k => tmHas(k) ? V.map[k][1] : 0;
 function tmSay(kind,at){
-  if(!voiceOn||!VOICE[kind]) return null;
+  if(!voiceOn||!vBuf||!tmHas(kind)) return null;
+  const sl=V.map[kind];
   try{
     const src=tmAC.createBufferSource();
-    src.buffer=VOICE[kind]; src.connect(tmAC.destination); src.start(at);
+    src.buffer=vBuf; src.connect(tmAC.destination);
+    src.start(at,sl[0],sl[1]);
     return src;
   }catch(e){ return null; }
+}
+/* 조각을 차례로 건다. ","는 쉼표 — 소리는 없고 사이만 벌린다.
+   낱말 사이를 너무 붙이면 한 덩어리로 뭉쳐 들려 무슨 말인지 안 잡힌다. */
+const VGAP=.13, VPAUSE=.3;
+function tmSayAll(keys,at){
+  const n=[]; let t=at;
+  keys.forEach(k=>{
+    if(k===","){ t+=VPAUSE; return; }
+    const s=tmSay(k,t);
+    if(s){ n.push(s); t+=tmDur(k)+VGAP; }
+  });
+  return n;
+}
+
+/* -- 숫자를 조각 이름으로 --------------------------------------
+   중량은 주차마다 오르고 앱에서 고칠 수도 있어서 문장을 미리 구워 둘 수가
+   없다. 그래서 0~99와 백 단위만 구워 두고 여기서 이어 붙인다.
+   규칙은 voice_build.py의 sino()/num_keys()와 한 글자도 다르면 안 된다 —
+   한쪽만 고치면 앱이 조각을 못 찾아 그 부분이 통째로 조용해진다. */
+const KO1=["","일","이","삼","사","오","육","칠","팔","구"];
+const KOF={"5":"점오","25":"점이오","75":"점칠오","125":"점일이오"};
+function koTens(n){
+  if(n===0) return "영";
+  const t=Math.floor(n/10), o=n%10;
+  return (t===0?"":t===1?"십":KO1[t]+"십")+KO1[o];
+}
+function koNum(s){
+  const m=/^(\d+)(?:\.(\d+))?$/.exec(String(s).trim());
+  if(!m) return null;
+  const n=+m[1], f=(m[2]||"").replace(/0+$/,"");
+  if(n>=1000) return null;
+  const k=[], h=Math.floor(n/100);
+  if(h){ k.push((h===1?"":KO1[h])+"백"); if(n%100) k.push(koTens(n%100)); }
+  else k.push(koTens(n));
+  if(f){
+    if(KOF[f]) k.push(KOF[f]);
+    else { k.push("점"); for(const c of f) k.push(koTens(+c)); }
+  }
+  return k;
+}
+/* '40' → 사십 킬로 · '30~35' → 삼십 에서 삼십오 킬로 · 숫자가 아니면 null */
+function koRange(s,unit){
+  const p=String(s).trim().split("~");
+  if(p.length>2) return null;
+  const a=koNum(p[0]); if(!a) return null;
+  if(p.length===1) return a.concat([unit]);
+  const b=koNum(p[1]); if(!b) return null;
+  return a.concat(["에서"],b,[unit]);
+}
+/* 숫자 꼴이면 조립하고, 아니면 통째로 구워 둔 칸('맨몸')을 찾는다 */
+function koCell(s,unit){
+  return koRange(s,unit) || (tmHas(s)?[s]:[]);
+}
+/* 다음 종목 안내. 값은 그 순간 화면에 떠 있는 것을 그대로 읽으므로
+   주차 증량도 앱에서 고친 중량도 따로 손댈 데가 없다. */
+function tmNextKeys(e,sets){
+  const k=["다음 종목",",",e.name];
+  if(e.mg) k.push(",",e.mg);
+  k.push(",");
+  k.push.apply(k,(koNum(String(sets))||[]).concat(["세트"]));
+  k.push(",");
+  k.push.apply(k,koCell(String(e.r||""),"회"));
+  k.push(",");
+  k.push.apply(k,koCell(tmW(e).replace(/kg$/,""),"킬로"));
+  return k.filter(x=>x===","||tmHas(x));
+}
+const tmLen = keys => keys.reduce(
+  (a,k)=>a+(k===","?VPAUSE:tmDur(k)+VGAP), 0);
+/* 이 휴식 다음에 종목이 바뀔 때만 읊는다. 같은 종목의 다음 세트로
+   이어질 뿐이면 조용하다 — 매 세트 떠들면 그냥 소음이다.
+   휴식이 끝나갈 때 나는 3·2·1 딸깍 소리에 말이 묻히지 않도록,
+   그 전에 다 끝낼 수 있을 때만 입을 뗀다. 5초짜리 '준비'에서 읊지 않는
+   것도 같은 이유다 — 시작 버튼을 누른 그 순간엔 화면을 보고 있다. */
+function tmNextSay(idx,at,off){
+  if(!TM||idx==null||!voiceOn||!vBuf) return [];
+  const cur=TM.st[idx], nx=TM.st[idx+1];
+  if(!cur||!nx||nx.e===cur.e) return [];
+  const k=tmNextKeys(nx.e,nx.sets);
+  if(off+tmLen(k)>cur.t-4) return [];      /* 딸깍 소리까지 4초는 비워 둔다 */
+  return tmSayAll(k,at);
 }
 
 const tmVib=p=>{ try{ if(document.visibilityState==="visible"&&navigator.vibrate) navigator.vibrate(p); }catch(e){} };
@@ -1378,17 +1548,31 @@ function tmTone(f,dur,vol,at){
     return o;
   }catch(e){ return null; }
 }
-function tmCueAt(kind,wall){
+/* 삐 소리와 말 사이의 간격. 삐 소리는 여운이 길어서 바짝 붙이면 말이
+   그 위에 얹혀 안 들린다 — 소리가 잦아든 뒤에 입을 뗀다. */
+const VAFTER=.36;
+function tmCueAt(kind,wall,idx){
   if(!tmAC) return;
   const at=tmAC.currentTime+Math.max(0,(wall-Date.now())/1000), n=[];
+  let say=[];
   /* 삐 소리가 먼저 귀를 잡고, 뒤이어 무엇인지 말한다 */
-  if(kind==="work"){ n.push(tmTone(1046,.35,.6,at)); n.push(tmSay("work",at+.42)); }
-  else if(kind==="rest"){ n.push(tmTone(660,.15,.5,at)); n.push(tmTone(660,.15,.5,at+.22));
-                          n.push(tmSay("rest",at+.5)); }
-  else if(kind==="prep"){ n.push(tmTone(784,.12,.4,at)); n.push(tmSay("prep",at+.2)); }
+  if(kind==="work"){ n.push(tmTone(1046,.35,.6,at)); n.push(tmSay("work",at+.35+VAFTER)); }
+  else if(kind==="rest"){ const beep=.22+.15;   /* 두 번째 삐 소리가 끝나는 시각 */
+                          n.push(tmTone(660,.15,.5,at)); n.push(tmTone(660,.15,.5,at+.22));
+                          n.push(tmSay("rest",at+beep+VAFTER));
+                          /* 다음이 새 종목이면 휴식 시작에 한 번 읊는다 —
+                             쉬는 동안 옮겨 갈 기구와 무게를 미리 알라고 */
+                          const off=beep+VAFTER+tmDur("rest")+.5;
+                          say=tmNextSay(idx,at+off,off); }
+  else if(kind==="prep"){ n.push(tmTone(784,.12,.4,at)); n.push(tmSay("prep",at+.12+VAFTER)); }
   else if(kind==="tick") n.push(tmTone(880,.07,.3,at));
-  else { n.push(tmTone(1046,.5,.6,at)); n.push(tmSay("done",at+.62)); }
-  tmPend.push({at:wall,kind:kind,nodes:n.filter(Boolean)});
+  else { n.push(tmTone(1046,.5,.6,at)); n.push(tmSay("done",at+.5+VAFTER)); }
+  tmPend.push({at:wall,kind:kind,nodes:n.filter(Boolean).concat(say),say:say});
+}
+/* 읊는 중인 안내를 끊는다. 건너뛰기로 다른 종목에 가 놓고 이전 안내를
+   계속 듣고 있으면 틀린 무게를 듣게 된다. 삐 소리는 짧아서 그냥 둔다. */
+function tmHush(){
+  tmPend.forEach(x=>(x.say||[]).forEach(o=>{ try{ o.stop(0); }catch(e){} }));
 }
 /* 아직 안 난 예약을 모두 취소한다. 나고 있는 소리는 자르지 않는다 */
 function tmDrop(){
@@ -1404,12 +1588,13 @@ function tmSchedule(){
   tmDrop(); tmSchedAt=Date.now();
   if(!TM||!TM.run||!tmAC) return;
   const now=Date.now(), lim=now+LOOKAHEAD;
-  const add=(k,at)=>{ if(at>now+250&&at<=lim) tmCueAt(k,at); };
+  const add=(k,at,idx)=>{ if(at>now+250&&at<=lim) tmCueAt(k,at,idx); };
   let end=TM.endAt;
   for(let i=TM.i;i<TM.st.length;i++){
     if(i>TM.i) end+=TM.st[i].t*1000;
     for(let k=3;k>=1;k--) add("tick",end-k*1000);
-    add(i+1<TM.st.length?TM.st[i+1].p:"done",end);
+    /* end에 시작되는 건 i+1번 구간이다 — 안내는 그 구간을 기준으로 만든다 */
+    add(i+1<TM.st.length?TM.st[i+1].p:"done",end,i+1);
     if(end>lim) break;
   }
 }
@@ -1417,7 +1602,8 @@ function tmSchedule(){
 function tmEnter(){
   if(!TM) return;
   const p=TM.st[TM.i].p;
-  tmCueAt(p,Date.now()+20);
+  tmHush();
+  tmCueAt(p,Date.now()+20,TM.i);
   tmVib(p==="work"?[350]:p==="rest"?[140,90,140]:[90]);
   tmSchedule();
 }
@@ -1500,12 +1686,13 @@ function tmGo(delta){
 }
 function tmPause(){
   if(!TM) return;
-  if(TM.run){ TM.rest=Math.max(0,TM.endAt-Date.now()); TM.run=false; tmUnlock(); tmDrop(); }
+  if(TM.run){ TM.rest=Math.max(0,TM.endAt-Date.now()); TM.run=false; tmUnlock();
+              tmHush(); tmDrop(); }
   else { TM.endAt=Date.now()+TM.rest; TM.run=true; tmLock(); tmSchedule(); }
   tmLeft=-1; tmPaint(); tmMedia();
 }
 function tmClose(){
-  clearInterval(tmInt); tmInt=null; TM=null; tmLeft=-1; tmUnlock(); tmDrop();
+  clearInterval(tmInt); tmInt=null; TM=null; tmLeft=-1; tmUnlock(); tmHush(); tmDrop();
   /* 유지음은 끊는다 — 타이머를 닫고도 계속 흘리면 배터리만 먹는다.
      다만 '완료' 말소리가 남아 있을 수 있어 2.5초 뒤에 끈다. */
   clearTimeout(tmIdle);
@@ -1589,6 +1776,7 @@ tmMuteBtn.onclick=()=>{
   voiceOn=!voiceOn;
   try{ localStorage.setItem("wk-voice",voiceOn?"1":"0"); }catch(e){}
   tmMutePaint();
+  if(!voiceOn) tmHush();            /* 끄면 하던 말도 그 자리에서 멈춘다 */
   if(TM&&TM.run) tmSchedule();      /* 이미 걸어둔 예약을 새 설정으로 다시 건다 */
 };
 document.getElementById("tm-x").onclick=tmClose;

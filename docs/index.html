@@ -937,7 +937,9 @@ function render(){
   document.getElementById("app").innerHTML = html + ovHTML() +
     `<p class="footnote">원본: ${esc(D.source)} · 중량은 시트와 동일한 계산식(MROUND 2.5kg, 웜업 40/60/75/90%)으로 산출됩니다. 중량 숫자를 탭하면 이 폰에서만 고칠 수 있습니다.</p>`;
   bindEdits();
-  try{ localStorage.setItem("wk-prog", JSON.stringify({mode,week,tab,on:ymd(new Date())})); }catch(e){}
+  try{ const c=cycleOf(ymd(new Date()));
+    localStorage.setItem("wk-prog", JSON.stringify(
+      {mode,week,tab,on:ymd(new Date()),cd:c?c.day:null})); }catch(e){}
 }
 const tmMuteBtn=document.getElementById("tm-mute");
 const tmMutePaint=()=>{ tmMuteBtn.textContent=voiceOn?"\uD83D\uDD0A":"\uD83D\uDD07";
@@ -965,9 +967,12 @@ document.getElementById("m-back").onclick=()=>{mode="back";tab=D.backOrder[0];
   document.getElementById("m-home").setAttribute("aria-pressed","false");render();};
 try{
   const st=JSON.parse(localStorage.getItem("wk-prog")||"null");
-  /* 날짜가 바뀐 뒤 처음 열면 오늘 할 일차로 간다 — 8일 주기는 요일로 못 세니까 */
+  /* 오늘 할 일차로 간다 — 8일 주기는 요일로 못 세니까.
+     날짜가 바뀌었을 때뿐 아니라 기준일이 수정돼 오늘 일차 자체가 달라졌을 때도 옮긴다
+     (st.cd = 마지막으로 저장할 때의 오늘 일차. 없으면 옛 버전이므로 역시 옮긴다). */
   const cur0=cycleOf(ymd(new Date()));
-  if(cur0&&(!st||st.on!==ymd(new Date()))&&(!st||st.mode!=="back")){
+  const moved = !st || st.on!==ymd(new Date()) || st.cd!==cur0.day;
+  if(cur0&&moved&&(!st||st.mode!=="back")){
     tab=cur0.day; week=Math.min(WEEKS,Math.max(1,cur0.cycle));
   } else if(st&&st.mode){ mode=st.mode; week=Math.min(st.week||1,WEEKS); tab=st.tab||tab;
     document.getElementById("m-home").setAttribute("aria-pressed",mode==="home");

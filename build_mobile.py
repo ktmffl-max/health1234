@@ -1524,15 +1524,17 @@ const tmLen = keys => keys.reduce(
   (a,k)=>a+(k===","?VPAUSE:tmDur(k)+VGAP), 0);
 /* 이 휴식 다음에 종목이 바뀔 때만 읊는다. 같은 종목의 다음 세트로
    이어질 뿐이면 조용하다 — 매 세트 떠들면 그냥 소음이다.
-   휴식이 끝나갈 때 나는 3·2·1 딸깍 소리에 말이 묻히지 않도록,
-   그 전에 다 끝낼 수 있을 때만 입을 뗀다. 5초짜리 '준비'에서 읊지 않는
-   것도 같은 이유다 — 시작 버튼을 누른 그 순간엔 화면을 보고 있다. */
+   휴식이 끝나갈 때 나는 카운트다운에 말이 묻히지 않도록, 그 전에 다 끝낼 수
+   있을 때만 입을 뗀다. 5초짜리 '준비'에서 읊지 않는 것도 같은 이유다 —
+   시작 버튼을 누른 그 순간엔 화면을 보고 있다. */
 function tmNextSay(idx,at,off){
   if(!TM||idx==null||!voiceOn||!vBuf) return [];
   const cur=TM.st[idx], nx=TM.st[idx+1];
   if(!cur||!nx||nx.e===cur.e) return [];
   const k=tmNextKeys(nx.e,nx.sets);
-  if(off+tmLen(k)>cur.t-4) return [];      /* 딸깍 소리까지 4초는 비워 둔다 */
+  /* 카운트다운이 시작되기 1초 전까지는 끝나야 한다. 리드가 길어진 만큼
+     이 여유도 같이 늘어난다 — 안 그러면 안내가 딸깍 위에 얹힌다. */
+  if(off+tmLen(k)>cur.t-(tmLead(cur,nx)+1)) return [];
   return tmSayAll(k,at);
 }
 
@@ -1589,7 +1591,12 @@ function tmCueAt(kind,wall,idx){
                           const off=beep+VAFTER+tmDur("rest")+.5;
                           say=tmNextSay(idx,at+off,off); }
   else if(kind==="prep"){ n.push(tmTone(784,.12,.4,at)); n.push(tmSay("prep",at+.12+VAFTER)); }
-  else if(kind==="tick") n.push(tmTone(880,.07,.3,at));
+  /* 카운트다운은 두 단이다. 리드 시작에 낮고 긴 소리로 한 번 알리고(준비 시작),
+     그 뒤로는 조용한 딸깍이 이어지다가, 마지막 3초만 높고 또렷해진다.
+     전부 같은 소리로 울리면 몇 초 남았는지 귀로 구별이 안 돼 결국 화면을 보게 된다. */
+  else if(kind==="lead")  n.push(tmTone(523,.22,.38,at));
+  else if(kind==="tick")  n.push(tmTone(660,.05,.16,at));
+  else if(kind==="tick3") n.push(tmTone(880,.07,.30,at));
   else { n.push(tmTone(1046,.5,.6,at)); n.push(tmSay("done",at+.5+VAFTER)); }
   tmPend.push({at:wall,kind:kind,nodes:n.filter(Boolean).concat(say),say:say});
 }
@@ -1607,6 +1614,20 @@ function tmDrop(){
   });
   tmPend=keep;
 }
+/* 카운트다운을 몇 초 전부터 시작할지.
+
+   운동으로 들어갈 때만 길게 센다 — 3초는 통보지 준비 시간이 아니어서
+   바 밑으로 들어가려면 그 전에 알아야 한다. 반대로 운동 → 휴식 전환에는
+   3초 그대로다. 세트를 치는 중에 딸깍거리면 도움이 아니라 방해다.
+
+   리드는 끝나는 구간의 길이에 비례시킨다. 휴식이 길수록 준비할 것이 많은
+   종목이기 때문이다 — 스쿼트 180초에는 15초가 맞고, 레터럴 60초에 15초를
+   주면 휴식의 4분의 1이 카운트다운이 된다. */
+function tmLead(seg,next){
+  if(!next||next.p!=="work") return 3;
+  const t=seg.t, lead = t>=150 ? 15 : t>=105 ? 10 : t>=60 ? 5 : 3;
+  return Math.min(lead,Math.max(3,t-2));   /* 준비(5초)처럼 짧은 구간은 잘라 맞춘다 */
+}
 /* 지금부터 90초 안에 울릴 것을 전부 오디오 시계에 건다 */
 function tmSchedule(){
   tmDrop(); tmSchedAt=Date.now();
@@ -1616,9 +1637,12 @@ function tmSchedule(){
   let end=TM.endAt;
   for(let i=TM.i;i<TM.st.length;i++){
     if(i>TM.i) end+=TM.st[i].t*1000;
-    for(let k=3;k>=1;k--) add("tick",end-k*1000);
+    const nx=TM.st[i+1], lead=tmLead(TM.st[i],nx);
+    if(lead>3) add("lead",end-lead*1000);
+    for(let k=lead-1;k>=4;k--) add("tick",end-k*1000);
+    for(let k=3;k>=1;k--) add("tick3",end-k*1000);
     /* end에 시작되는 건 i+1번 구간이다 — 안내는 그 구간을 기준으로 만든다 */
-    add(i+1<TM.st.length?TM.st[i+1].p:"done",end,i+1);
+    add(nx?nx.p:"done",end,i+1);
     if(end>lim) break;
   }
 }

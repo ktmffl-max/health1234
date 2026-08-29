@@ -42,7 +42,10 @@ for _stream in (sys.stdout, sys.stderr):
 # 2026-08-28에 8일 주기로 옮기며 D1~D8 형태가 현행이 됐고, 요일 형태는 옛 워크북 호환용이다.
 WEEKDAYS = "월화수목금토일"
 DAY_SHEET = re.compile(r"^(?:D(\d+)|([월화수목금토일]))_")
-BACK_DAYS = [("화", "복귀_화_상체밀기"), ("토", "복귀_토_하체"), ("일", "복귀_일_등")]
+# 복귀판은 주 4회 2분할. 12시간 근무 요일이 유동이라 평일 두 세션은 요일이 아니라
+# 슬롯('평A' · '평B')으로만 부른다 — 그 주 근무표를 보고 8시간인 날에 넣는다.
+BACK_DAYS = [("평A", "복귀_평일A_가슴"), ("평B", "복귀_평일B_어깨"),
+             ("토", "복귀_토_하체"), ("일", "복귀_일_등")]
 
 
 def home_days(wb):
@@ -393,8 +396,11 @@ def parse_day(ws):
     return day
 
 
-def parse_check(wb):
-    ws = wb["세트검산"]
+def parse_check(wb, sheet="세트검산", adj_col=None):
+    """근육군별 검산표. adj_col을 주면 그 열을 '현장 일 보정' 등급으로 함께 읽는다.
+
+    재택 시트는 G열이 합산 라벨이라 adj_col을 주지 않고, 복귀 시트만 G열에 보정 등급이 있다."""
+    ws = wb[sheet]
     rows = []
     for r in range(5, ws.max_row + 1):
         name = s(ws.cell(r, 1).value)
@@ -405,7 +411,8 @@ def parse_check(wb):
         verdict = s(ws.cell(r, 5).value)
         tag = "ok" if verdict == "충분" else ("lo" if verdict == "하한" else "bad")
         rows.append([name, int(direct), int(ind), int(real), tag, verdict,
-                     s(ws.cell(r, 6).value)])
+                     s(ws.cell(r, 6).value),
+                     s(ws.cell(r, adj_col).value) if adj_col else ""])
     return rows
 
 
@@ -526,7 +533,8 @@ def parse_back_plan(wb):
     ws = wb["복귀_주간계획"]
     hdr = None
     for r in range(1, 12):
-        if s(ws.cell(r, 1).value) == "요일":
+        # 주 4회판은 요일이 유동이라 머리글이 '슬롯'이다. 옛 워크북('요일')도 같이 받는다.
+        if s(ws.cell(r, 1).value) in ("슬롯", "요일"):
             hdr = r; break
     rows = []
     if hdr:
@@ -641,6 +649,7 @@ def build(xlsx_path, out_path):
         "home":   {label: parse_day(wb[sheet]) for label, sheet in home},
         "back":   {label: parse_day(wb[sheet]) for label, sheet in BACK_DAYS},
         "check":  parse_check(wb),
+        "backCheck": parse_check(wb, "복귀_세트검산", adj_col=7),
         "plan":   parse_plan(wb),
         "ramp":   parse_ramp(wb),
         "backPlan": parse_back_plan(wb),
@@ -1242,18 +1251,29 @@ function setToday(d){
   saveAnchor();
 }
 
+/* 검산 — 재택과 복귀가 다른 표를 쓴다. 복귀판은 주 단위라 환산이 없고,
+   대신 현장 일이 채워주는 정도를 '보정' 열로 함께 보여준다. */
 function checkHTML(){
+  const back = mode==="back", rows = back ? D.backCheck : D.check;
+  if(!rows||!rows.length) return `<h2 class="daytitle">세트 검산</h2><p class="daysub">표가 없습니다.</p>`;
+  const adj = back && rows.some(r=>r[7]);
   return `<h2 class="daytitle">세트 검산</h2>
-  <p class="daysub">세트는 근육군 단위로 센다. 실질 = 직접 + 간접 추정.</p>
-  <table class="tbl"><thead><tr><th>근육군</th><th>직접</th><th>간접</th><th>실질</th><th>판정</th></tr></thead><tbody>
-  ${D.check.map(([m,dr,i,t,tag,v])=>`<tr><td>${esc(m)}</td><td class="num">${dr}</td>
+  <p class="daysub">${back
+    ? "세트는 근육군 단위로 센다. 복귀판은 주 4회 · 주 단위라 이 숫자가 곧 주간 세트다. 실질 = 직접 + 간접 추정."
+    : "세트는 근육군 단위로 센다. 실질 = 직접 + 간접 추정."}</p>
+  <table class="tbl"><thead><tr><th>근육군</th><th>직접</th><th>간접</th><th>실질</th><th>판정</th>${adj?"<th>보정</th>":""}</tr></thead><tbody>
+  ${rows.map(([m,dr,i,t,tag,v,,g])=>`<tr><td>${esc(m)}</td><td class="num">${dr}</td>
     <td class="num" style="color:var(--mute)">${i}</td><td class="num" style="font-weight:800">${t}</td>
-    <td><span class="judge j-${tag}">${esc(v)}</span></td></tr>`).join("")}
-  <tr><td style="font-weight:800">직접 세트 총계</td><td class="num" style="font-weight:800">${D.check.reduce((a,r)=>a+r[1],0)}</td><td colspan="3"></td></tr>
+    <td><span class="judge j-${tag}">${esc(v)}</span></td>${adj?`<td class="num" style="color:var(--mute)">${esc(g||"—")}</td>`:""}</tr>`).join("")}
+  <tr><td style="font-weight:800">직접 세트 총계</td><td class="num" style="font-weight:800">${rows.reduce((a,r)=>a+r[1],0)}</td><td colspan="${adj?4:3}"></td></tr>
   </tbody></table>
-  <div class="notes"><h5>간접 출처</h5><ul>${D.check.filter(r=>r[6]&&r[6]!=="—")
+  ${adj?`<div class="notes"><h5>현장 일 보정</h5><ul>
+    <li><b style="color:var(--ink)">높음</b> — 현장 일이 하루치를 얹는다. 판정이 하한 미달이어도 실제로는 채워진다.</li>
+    <li><b style="color:var(--ink)">중간</b> — 부분적으로만 채워진다. 판정을 절반쯤 믿는다.</li>
+    <li><b style="color:var(--ink)">없음</b> — 현장 일이 안 건드린다. 판정을 액면대로 믿어야 하고, 볼륨을 쓸 곳도 여기다.</li></ul></div>`:""}
+  <div class="notes"><h5>간접 출처</h5><ul>${rows.filter(r=>r[6]&&r[6]!=="—")
     .map(r=>`<li><b style="color:var(--ink)">${esc(r[0])}</b> — ${esc(r[6])}</li>`).join("")}</ul></div>
-  ${RAMP?`<p class="footnote">이 표는 설계 볼륨 기준이다 — 램프가 끝난 ${RAMP.rows[RAMP.rows.length-1].week}주차부터의 값.
+  ${!back&&RAMP?`<p class="footnote">이 표는 설계 볼륨 기준이다 — 램프가 끝난 ${RAMP.rows[RAMP.rows.length-1].week}주차부터의 값.
     이번 주에 실제로 하는 세트는 요일 탭과 주간 탭에서 본다.</p>`:""}`;
 }
 function rampHTML(){
@@ -1288,7 +1308,7 @@ function planHTML(){
 function backPlanHTML(){
   const p=D.backPlan;
   return `<h2 class="daytitle">복귀 주간 계획</h2><p class="daysub">${esc(p.sub)}</p>
-  <table class="tbl"><thead><tr><th>요일</th><th>A</th><th>B</th><th style="text-align:left">훈련</th><th>세트</th></tr></thead><tbody>
+  <table class="tbl"><thead><tr><th>슬롯</th><th>근무</th><th>고정</th><th style="text-align:left">훈련</th><th>세트</th></tr></thead><tbody>
   ${p.rows.map(r=>`<tr class="${r[4]?'':'rest'}"><td>${esc(r[0])}</td>
     <td class="num" style="color:var(--mute)">${esc(r[1])}</td><td class="num" style="color:var(--mute)">${esc(r[2])}</td>
     <td class="wrap" style="font-weight:600;color:var(--ink)">${esc(r[3])}</td><td class="num">${r[4]||"—"}</td></tr>`).join("")}

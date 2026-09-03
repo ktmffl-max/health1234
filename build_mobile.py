@@ -248,6 +248,22 @@ def num(v, default=0):
         return default
 
 
+def rest_ramp(v):
+    """세트별 휴식 칸 — "150/170/190/215/240" (초, 세트 순).
+
+    세트가 쌓이면 피로도 쌓인다. 5x5가 무너지는 자리는 늘 4~5세트째이므로
+    앞 세트에서 덜어 뒤 세트에 준다. 비어 있으면 None = '휴식(초)' 한 값을
+    전 세트에 쓴다(종전 동작).
+
+    H열('휴식(초)')은 이 램프의 평균으로 둔다 — 그래야 I열 '종목 분'
+    수식 E*(G+H)/60 이 손대지 않고도 그대로 맞는다."""
+    t = s(v)
+    if not t:
+        return None
+    out = [int(round(num(x))) for x in t.split("/") if s(x)]
+    return out or None
+
+
 def is_continuation(t):
     """소제목은 짧고 마침표가 없다. 길거나 문장으로 끝나면 앞 항목의 뒷줄로 본다."""
     return len(t) > 40 or t.endswith((".", "다", "음", "함"))
@@ -350,6 +366,10 @@ def parse_day(ws):
                 # 인터벌 타이머용. 이 열이 없는 워크북(복귀 시트)은 0 = 타이머 없음
                 "wk":  int(num(ws.cell(r, C("수행(초)")).value)) if C("수행(초)") else 0,
                 "rt":  int(num(ws.cell(r, C("휴식(초)")).value)) if C("휴식(초)") else 0,
+                # 세트별 휴식 램프. 열이 없거나 비면 None → rt 하나를 전 세트에
+                "rl":  rest_ramp(ws.cell(r, C("세트별 휴식(초)")).value) if C("세트별 휴식(초)") else None,
+                # 슈퍼세트 태그. 같은 태그가 붙은 이웃 종목끼리 세트를 번갈아 돈다
+                "ss":  s(ws.cell(r, C("슈퍼세트")).value) if C("슈퍼세트") else "",
                 "memo": s(ws.cell(r, C("메모")).value) if C("메모") else "",
                 "alt": s(ws.cell(r, C("대체 종목")).value) if C("대체 종목") else "",
                 "ind": s(ws.cell(r, C("간접 자극")).value) if C("간접 자극") else "",
@@ -815,6 +835,7 @@ main{padding:18px var(--pad) 0;max-width:640px;margin:0 auto}
 .ex-t{flex:1;min-width:0}
 .ex-t h4{margin:0;font-size:15.5px;font-weight:700;letter-spacing:-.02em}
 .ex-t .mg{font-size:11.5px;color:var(--mute);margin-top:1px}
+.ex-t .mg .ss{color:var(--mp);font-weight:800}
 .ex-p{text-align:right;flex:0 0 auto}
 .ex-p b{font-size:16px;font-weight:800;letter-spacing:-.02em;display:block}
 .ex-p span{font-size:11.5px;color:var(--mute)}
@@ -1099,9 +1120,9 @@ function exHTML(e,prefix,sets,timed){
       </div></div></article>`;
   return `<article class="ex"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
-      <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}</div></div>
+      <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}</div></div>
       <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${ov?'edited':''}"${canEdit?` data-exkey="${escAttr(key)}"`:""}>${esc(w)}</span></div></div>
-    ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${e.wk}초 · 휴식 ${mmss(e.rt)}</b></button></div>`
+    ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${e.wk}초 · 휴식 ${restLabel(e)}</b></button></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
     ${e.memo?`<div class="ex-memo">${esc(e.memo)}</div>`:""}
     ${e.alt?`<details><summary>대체 종목</summary><p>${esc(e.alt)}</p></details>`:""}</article>`;
@@ -1395,20 +1416,41 @@ function ovHTML(){
 const PH={prep:["준비","var(--bp)"],work:["운동","var(--mp)"],rest:["휴식","var(--sq)"]};
 const PREP=5;
 const mmss=v=>{const m=Math.floor(v/60),x=v%60;return (m<10?"0":"")+m+":"+(x<10?"0":"")+x;};
+/* 세트별 휴식. e.rl(엑셀 '세트별 휴식(초)')이 있으면 그 배열을, 없으면 e.rt
+   하나를 전 세트에 쓴다. 복귀 램프로 세트가 배열보다 늘어난 경우에는 마지막
+   값을 이어 쓴다 — 오름차순이므로 '뒤로 갈수록 길어진다'가 유지된다. */
+const restAt=(e,k)=>{const L=e.rl; return (L&&L.length)?L[Math.min(k,L.length)-1]:e.rt;};
+const restLabel=e=>{const L=e.rl;
+  return (L&&L.length>1)?mmss(L[0])+" → "+mmss(L[L.length-1]):mmss(e.rt);};
 let TM=null, tmInt=null, tmAC=null, tmWL=null, tmLeft=-1;
 
 function tmSteps(d,week,from){
   const on=rampOn(), S=e=>on?setsOf(e,week):e.s;
   const live=allEx(d).filter(e=>e.s!==0&&S(e)>0&&e.wk>0);
+  /* 슈퍼세트 — 같은 태그가 붙은 이웃 종목끼리 한 묶음이 되어 세트를 번갈아
+     돈다 (A1 → A2 → 휴식 → A1 → A2 → …). 휴식(초)의 뜻은 그대로 "이 종목
+     세트 뒤에 오는 쉼"이라, 묶음 앞쪽에는 전환 시간을, 마지막 종목에는
+     라운드 간 휴식을 적으면 된다. 세트 수가 서로 달라도 된다 — 모자란 쪽은
+     그 라운드에서 빠진다. */
+  const groups=[];
+  live.forEach(e=>{ const g=groups[groups.length-1];
+    if(g&&e.ss&&g[0].ss===e.ss) g.push(e); else groups.push([e]); });
   const st=[];
-  live.forEach(e=>{ const n=S(e);
-    for(let k=1;k<=n;k++){
-      st.push({p:"work",t:e.wk,e:e,set:k,sets:n});
-      if(e.rt>0) st.push({p:"rest",t:e.rt,e:e,set:k,sets:n});
-    }});
+  groups.forEach(g=>{ const n=Math.max.apply(null,g.map(S));
+    for(let k=1;k<=n;k++) g.forEach(e=>{
+      if(k>S(e)) return;
+      st.push({p:"work",t:e.wk,e:e,set:k,sets:S(e)});
+      const rt=restAt(e,k);
+      if(rt>0) st.push({p:"rest",t:rt,e:e,set:k,sets:S(e)});
+    });});
   while(st.length&&st[st.length-1].p==="rest") st.pop();   /* 세션 끝의 휴식은 뺀다 */
   let cut=0;
-  if(from){ const j=st.findIndex(x=>x.e.name===from); if(j>0) cut=j; }
+  if(from){
+    /* 슈퍼세트는 어느 짝을 눌러도 그 묶음의 처음부터 시작한다 —
+       라운드 중간에서 시작하면 짝이 어긋난다 */
+    const fe=live.find(e=>e.name===from), g=fe?groups.find(x=>x.indexOf(fe)>=0):null;
+    const j=st.findIndex(x=>x.e.name===(g?g[0].name:from)); if(j>0) cut=j;
+  }
   const out=st.slice(cut);
   if(out.length) out.unshift({p:"prep",t:PREP,e:out[0].e,set:out[0].set,sets:out[0].sets});
   out.forEach(x=>{ x.li=live.indexOf(x.e)+1; x.ln=live.length; });

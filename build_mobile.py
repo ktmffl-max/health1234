@@ -938,6 +938,10 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
   text-align:center;min-height:0}
 #tm-name{margin:0;font-size:25px;font-weight:800;line-height:1.25;letter-spacing:-.02em}
 #tm-meta{margin:5px 0 18px;font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums}
+#tm-meta .tm-w,.tm-up .tm-w{border-bottom:1px dotted currentColor;cursor:pointer;padding-bottom:1px}
+#tm-meta .tm-w.edited,.tm-up .tm-w.edited{color:var(--bp);border-bottom-color:var(--bp)}
+#tm-meta .w-input{width:106px;font-size:15px;padding:4px 7px}
+.tm-up .w-input{width:88px;font-size:13px;padding:3px 6px}
 .tm-dial{width:min(72vw,286px);aspect-ratio:1;border-radius:50%;display:flex;flex-direction:column;
   align-items:center;justify-content:center;background:var(--surface);
   border:7px solid var(--phase,var(--line));transition:border-color .25s}
@@ -1332,19 +1336,20 @@ function progressHTML(week){
 
 /* ── 중량 편집 UI ── 숫자를 탭 → 입력 → 확인(엔터·바깥 탭)으로 저장.
    빈 값으로 확인하면 엑셀 값으로 되돌아간다. */
-function grabInput(el, value, numeric, onCommit){
+function grabInput(el, value, numeric, onCommit, after){
   if(el.querySelector("input")) return;
   el.innerHTML=`<input class="w-input" type="text"${numeric?' inputmode="decimal"':''}`+
     ` value="${escAttr(value)}" placeholder="—">`;
   const inp=el.querySelector("input");
   inp.focus(); inp.select();
   let done=false;
-  const finish=commit=>{ if(done) return; done=true; if(commit) onCommit(inp.value.trim()); render(); };
+  const finish=commit=>{ if(done) return; done=true; if(commit) onCommit(inp.value.trim());
+    render(); if(after) after(); };
   inp.onblur=()=>finish(true);
   inp.onkeydown=ev=>{ if(ev.key==="Enter") finish(true); else if(ev.key==="Escape") finish(false); };
 }
-function editLift(el){
-  const k=el.dataset.lift;
+function editLift(el,k,after){
+  k=k||el.dataset.lift;
   grabInput(el, fmt(workWeight(k,week)), true, v=>{
     const n=parseFloat(v);
     if(v===""){ delete OV.lifts[k]; }
@@ -1355,17 +1360,18 @@ function editLift(el){
       else OV.lifts[k]={start:start, base:LIFT[k].start};
     }
     saveOV();
-  });
+  }, after);
 }
-function editEx(el){
-  const key=el.dataset.exkey, e=exByKey(key);
+function editEx(el,key,after){
+  key=key||el.dataset.exkey;
+  const e=exByKey(key);
   if(!e) return;
   const cur=OV.ex[key]?OV.ex[key].w:e.w;
   grabInput(el, cur==="—"?"":cur, false, v=>{
     if(!v||v===e.w) delete OV.ex[key];
     else OV.ex[key]={w:v, base:e.w};
     saveOV();
-  });
+  }, after);
 }
 function ovHTML(){
   const items=[];
@@ -1679,8 +1685,37 @@ document.addEventListener("visibilitychange",()=>{
 });
 
 /* 종목 한 줄 요약. 어느 근육을 쓰는지 · 몇 kg · 몇 회 — 상단과 하단이
-   같은 함수를 쓰므로 한쪽만 형식이 어긋날 일이 없다. */
-const tmMeta = e => [e.mg, tmW(e), e.r+"회"].filter(Boolean).join(" · ");
+   같은 함수를 쓰므로 한쪽만 형식이 어긋날 일이 없다.
+   가운데 무게는 눌러서 그 자리에서 고친다 — 봉에 실제로 끼운 게 다를 때
+   타이머를 닫고 목록으로 돌아갔다 오지 않아도 되게. 저장되는 곳은
+   목록에서 고칠 때와 같은 덮어쓰기(OV)이므로 값이 두 벌로 갈리지 않는다.
+   '위 참조'(메인 리프트 본세트)는 종목이 아니라 시작중량을 고쳐야
+   웜업 램프·원판까지 따라오므로 lift 쪽으로 보낸다. */
+function tmKey(e){
+  const d=(mode==="home"?D.home:D.back)[tab];
+  return (e.w==="위 참조"&&d&&d.main) ? "lift|"+d.main : "ex|"+mode+"|"+tab+"|"+e.name;
+}
+function tmMeta(e){
+  const key=tmKey(e), p=key.split("|");
+  const ov = p[0]==="lift" ? OV.lifts[p[1]] : OV.ex[p.slice(1).join("|")];
+  const w=`<span class="tm-w${ov?" edited":""}" data-tmw="${escAttr(key)}">${esc(tmW(e))}</span>`;
+  return [esc(e.mg), w, esc(e.r)+"회"].filter(Boolean).join(" · ");
+}
+function tmEditW(el){
+  const p=el.dataset.tmw.split("|");
+  /* 입력칸을 먼저 걷어내고 다시 그린다 — 그냥 tmPaint를 부르면
+     아래 tmSet이 '아직 고치는 중'으로 보고 입력칸을 그대로 둔다 */
+  const after=()=>{ el.innerHTML=""; tmPaint(); };
+  if(p[0]==="lift") editLift(el, p[1], after);
+  else editEx(el, p.slice(1).join("|"), after);
+}
+/* 입력칸이 열려 있는 줄은 건드리지 않는다 — 타이머가 120ms마다 다시 그리므로
+   그냥 덮어쓰면 두 글자 치는 사이에 입력이 날아간다. */
+function tmSet(id,html){
+  const el=document.getElementById(id);
+  if(el.querySelector("input")) return;
+  el.innerHTML=html;
+}
 function tmPaint(){
   if(!TM) return;
   const s=TM.st[TM.i], nx=TM.st[TM.i+1], ph=PH[s.p];
@@ -1688,20 +1723,19 @@ function tmPaint(){
   document.getElementById("tm-phase").textContent=ph[0];
   document.getElementById("tm-ctx").textContent=TM.title+" · "+s.li+"/"+s.ln+" 종목";
   document.getElementById("tm-name").textContent=s.e.name;
-  document.getElementById("tm-meta").textContent=tmMeta(s.e);
+  tmSet("tm-meta",tmMeta(s.e));
   document.getElementById("tm-set").textContent="세트 "+s.set+" / "+s.sets;
   document.getElementById("tm-time").textContent=
     mmss(TM.run?Math.max(0,Math.ceil((TM.endAt-Date.now())/1000)):Math.ceil(TM.rest/1000));
   document.getElementById("tm-play").textContent=TM.run?"일시정지":"계속";
-  const up=document.getElementById("tm-up");
-  if(nx&&nx.e!==s.e)
-    /* 종목이 바뀐다 — 쉬는 동안 눈으로도 확인하게 상단과 같은 형식으로 적는다.
-       읊어 주는 내용과 같다. 소리를 껐거나 못 들었을 때의 몫이기도 하다. */
-    up.innerHTML="다음 ▸ <b>"+esc(nx.e.name)+"</b><i>"
-                +esc(tmMeta(nx.e))+" · "+nx.sets+"세트</i>";
-  else up.textContent = !nx ? "마지막 세트"
+  /* 종목이 바뀐다 — 쉬는 동안 눈으로도 확인하게 상단과 같은 형식으로 적는다.
+     읊어 주는 내용과 같다. 소리를 껐거나 못 들었을 때의 몫이기도 하다.
+     여기 무게도 눌러 고칠 수 있다 — 다음 종목 준비는 쉬는 동안 하는 것이니 */
+  tmSet("tm-up", (nx&&nx.e!==s.e)
+    ? "다음 ▸ <b>"+esc(nx.e.name)+"</b><i>"+tmMeta(nx.e)+" · "+nx.sets+"세트</i>"
+    : !nx ? "마지막 세트"
     : s.p==="prep" ? "이어서 ▸ 운동 "+mmss(nx.t)+" × "+nx.sets+"세트"
-    : nx.p==="rest" ? "다음 ▸ 휴식 "+mmss(nx.t) : "다음 ▸ "+nx.set+"세트째";
+    : nx.p==="rest" ? "다음 ▸ 휴식 "+mmss(nx.t) : "다음 ▸ "+nx.set+"세트째");
 }
 function tmLoop(){
   if(!TM||!TM.run) return;
@@ -1835,6 +1869,11 @@ tmMuteBtn.onclick=()=>{
   if(!voiceOn) tmHush();            /* 끄면 하던 말도 그 자리에서 멈춘다 */
   if(TM&&TM.run) tmSchedule();      /* 이미 걸어둔 예약을 새 설정으로 다시 건다 */
 };
+/* 두 줄 다 tmPaint가 매번 새로 그리므로 개별 onclick은 붙자마자 사라진다 */
+document.getElementById("tm").addEventListener("click",ev=>{
+  const el=ev.target.closest("[data-tmw]");
+  if(el) tmEditW(el);
+});
 document.getElementById("tm-x").onclick=tmClose;
 document.getElementById("tm-play").onclick=tmPause;
 document.getElementById("tm-next").onclick=()=>tmGo(1);

@@ -426,7 +426,7 @@ def parse_check(wb, sheet="세트검산", adj_col=None):
     """근육군별 검산표. adj_col을 주면 그 열을 '현장 일 보정' 등급으로 함께 읽는다.
 
     재택 시트는 G열이 합산 라벨이라 adj_col을 주지 않고, 복귀 시트만 G열에 보정 등급이 있다.
-    J열(주당 환산)은 8일 주기인 재택 시트에만 있다 — 복귀판은 주 단위라 환산이 없어 0이 실린다."""
+    J열(주당 환산)은 주기가 7일이 아닌 재택 시트에만 있다 — 복귀판은 주 단위라 환산이 없어 0이 실린다."""
     ws = wb[sheet]
     rows = []
     for r in range(5, ws.max_row + 1):
@@ -723,7 +723,7 @@ def build(xlsx_path, out_path):
         print(f"       아이콘 생성: {', '.join(made)}")
     train = sum(1 for _, _, n in data["plan"]["rows"] if n)
     print(f"  훈련 {train}일 · 사이클당 {data['plan']['total']}세트 "
-          f"(주당 환산 {round(data['plan']['total'] * 7 / 8)}) "
+          f"(주당 환산 {round(data['plan']['total'] * 7 / len(data['plan']['rows']))}) "
           f"· {data['config']['weeks']}사이클 계획")
     if data["ramp"]:
         vw = data["config"]["week"] + RAMP_WEEK_OFFSET
@@ -1207,7 +1207,7 @@ const PLANMAP={}; D.plan.rows.forEach(([d,c,n])=>{ PLANMAP[d]={c:c,n:n}; });
 const shortLabel = d => (PLANMAP[d]?PLANMAP[d].c:d).replace(/\s*\([^)]*\)/g,"").trim();
 /* 일차별 색. 메인 리프트가 있는 날은 그 종목 색(빨강 스쿼트 · 파랑 데드 ·
    노랑 벤치 · 초록 밀리터리)을 쓰고, 없는 날은 남은 색을 순서대로 받는다.
-   이웃한 일차끼리 색이 겹치지 않는 것이 목적이다 — 8일차 다음이 1일차라
+   이웃한 일차끼리 색이 겹치지 않는 것이 목적이다 — 마지막 일차 다음이 1일차라
    둘이 같은 색이면 사이클이 넘어간 건지 알 수 없다. */
 const EXTRA=["#2BA6BF","#8A6CE0","#CE6BA5","#B08442"];
 const DAYACC={};
@@ -1254,7 +1254,7 @@ function calHTML(){
   }
 
   return `<h2 class="daytitle">달력</h2>
-  <p class="daysub">8일 주기는 요일과 어긋난다 — 오늘 무엇을 하는지는 날짜가 정한다. 칸을 누르면 그 일차로 간다.</p>
+  <p class="daysub">${CYCLE}일 주기는 요일과 어긋난다 — 오늘 무엇을 하는지는 날짜가 정한다. 칸을 누르면 그 일차로 간다.</p>
   ${head}
   <div class="cal-bar"><button id="cal-prev">‹</button>
     <h3>${ym.y}년 ${ym.m+1}월</h3>
@@ -1286,16 +1286,18 @@ function setToday(d){
 
 /* 검산 — 재택과 복귀가 다른 표를 쓴다. 복귀판은 주 단위라 환산이 없고,
    대신 현장 일이 채워주는 정도를 '보정' 열로 함께 보여준다. */
+/* 주기 길이. 주간계획 행 수에서 오므로 8일 → 9일로 바뀌어도 화면 문구가 따라간다. */
+const CYCLE = (D.homeOrder||[]).length || 8;
 function checkHTML(){
   const back = mode==="back", rows = back ? D.backCheck : D.check;
   if(!rows||!rows.length) return `<h2 class="daytitle">세트 검산</h2><p class="daysub">표가 없습니다.</p>`;
   const adj = back && rows.some(r=>r[7]);
-  /* 주당 환산(J열)은 8일 주기인 재택 시트에만 있다. 판정이 이 값으로 내려지므로 같이 띄운다. */
+  /* 주당 환산(J열)은 주기가 7일이 아닌 재택 시트에만 있다. 판정이 이 값으로 내려지므로 같이 띄운다. */
   const wk  = rows.some(r=>r[8]), span = (adj?4:3) + (wk?1:0);
   return `<h2 class="daytitle">세트 검산</h2>
   <p class="daysub">${back
     ? "세트는 근육군 단위로 센다. 복귀판은 주 4회 · 주 단위라 이 숫자가 곧 주간 세트다. 실질 = 직접 + 간접 추정."
-    : "세트는 근육군 단위로 센다. 실질 = 직접 + 간접 추정 — 이건 사이클당(8일) 세트다. 판정은 주당 환산(×7/8)으로 내린다."}</p>
+    : `세트는 근육군 단위로 센다. 실질 = 직접 + 간접 추정 — 이건 사이클당(${CYCLE}일) 세트다. 판정은 주당 환산(×7/${CYCLE})으로 내린다.`}</p>
   <table class="tbl"><thead><tr><th>근육군</th><th>직접</th><th>간접</th><th>실질</th>${wk?"<th>주당</th>":""}<th>판정</th>${adj?"<th>보정</th>":""}</tr></thead><tbody>
   ${rows.map(([m,dr,i,t,tag,v,,g,w])=>`<tr><td>${esc(m)}</td><td class="num">${dr}</td>
     <td class="num" style="color:var(--mute)">${i}</td><td class="num" style="font-weight:800">${t}</td>
@@ -1333,7 +1335,7 @@ function planHTML(){
   const on=rampOn()&&sum!==p.total;
   const rows=p.rows.map(([d,c,n])=>`<tr class="${n?'':'rest'}"><td>${esc(d)}</td><td class="wrap">${esc(c)}</td>
     <td class="num">${n||"—"}</td>${on?`<td class="num" style="font-weight:800">${n?wkSets(d):"—"}</td>`:""}</tr>`).join("");
-  return `<h2 class="daytitle">8일 주기 계획</h2><p class="daysub">${esc(p.sub)}</p>
+  return `<h2 class="daytitle">${CYCLE}일 주기 계획</h2><p class="daysub">${esc(p.sub)}</p>
   ${on?`<div class="rampbar"><b>볼륨 ${vWeek(week)}주차 · ${sum}세트 <span>/ 설계 ${p.total}</span></b>
       <span>오른쪽 열이 이번 주에 실제로 하는 세트다. 중량은 ${week}주차 그대로</span></div>`:""}
   <table class="tbl"><thead><tr><th>일차</th><th style="text-align:left">내용</th><th>${on?"설계":"세트"}</th>${on?"<th>이번 주</th>":""}</tr></thead><tbody>

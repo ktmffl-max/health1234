@@ -451,6 +451,18 @@ def parse_check(wb, sheet="세트검산", adj_col=None):
     return rows
 
 
+def parse_budget(wb, sheet="세트검산"):
+    """세트검산 상단(G1:L3)의 총량 예산 블록. 블록이 없으면 None — 복귀 시트에는 아직 없다.
+
+    엑셀은 가끔 열지만 폰은 매일 본다. INVALID가 워크북 안에만 있으면 아무도 안 본다."""
+    ws = wb[sheet]
+    if s(ws["K3"].value) != "상태":
+        return None
+    iv = lambda c: int(num(ws[c].value))          # 세트는 정수다 — 239.0으로 띄우지 않는다
+    return {"cycle": iv("H2"), "cap": iv("J2"), "cur": iv("L2"), "left": iv("H3"),
+            "weekly": num(ws["J3"].value), "state": s(ws["L3"].value) or "VALID"}
+
+
 def parse_notes_block(ws, start_row, default_head="메모"):
     out, head, bullets = [], None, []
     for r in range(start_row, ws.max_row + 1):
@@ -689,6 +701,7 @@ def build(xlsx_path, out_path):
         "home":   {label: parse_day(wb[sheet]) for label, sheet in home},
         "back":   {label: parse_day(wb[sheet]) for label, sheet in BACK_DAYS},
         "check":  parse_check(wb),
+        "budget": parse_budget(wb),
         "backCheck": parse_check(wb, "복귀_세트검산", adj_col=7),
         "plan":   parse_plan(wb),
         "ramp":   parse_ramp(wb),
@@ -743,6 +756,12 @@ def build(xlsx_path, out_path):
             f"{r['label']} {r['total']}세트" for r in data["ramp"]["rows"]))
         print(f"       중량 {data['config']['week']}주차 · 볼륨 {vw}주차"
               + (f" (앞세움 +{RAMP_WEEK_OFFSET})" if RAMP_WEEK_OFFSET else ""))
+    if data["budget"]:
+        b = data["budget"]
+        print(f"  예산 {b['state']} · 상한 {b['cap']} · 현재 {b['cur']} · 잔여 {b['left']}"
+              f" · 실제 주당 {b['weekly']} ({b['cycle']}일 주기)")
+        if b["left"] < 0:
+            print(f"  [중단 권고] 총량 {abs(b['left'])}세트 초과 — 어딘가에서 빼기 전에는 추가 금지")
     for row in data["check"]:
         if row[4] == "bad":
             print(f"  [주의] {row[0]}: 실질 {row[3]}세트 — {row[5]} (주당 {row[8]})")
@@ -899,6 +918,16 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .j-ok{color:var(--mp);border-color:rgba(46,145,97,.45)}
 .j-lo{color:var(--bp);border-color:rgba(221,165,27,.45)}
 .j-bad{color:var(--sq);border-color:rgba(201,58,66,.45)}
+.budget{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;
+  border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:0 0 12px}
+.budget b{font-size:13px;letter-spacing:.04em}
+.budget span{font-size:12px;color:var(--mute)}
+.budget span i{font-style:normal;color:var(--ink);font-weight:700}
+.budget.ok{border-color:rgba(46,145,97,.45)}
+.budget.ok b{color:var(--mp)}
+.budget.bad{border-color:rgba(201,58,66,.55);background:rgba(201,58,66,.07)}
+.budget.bad b{color:var(--sq)}
+.budget .warn{flex-basis:100%;font-size:12px;color:var(--sq);font-weight:700}
 .footnote{font-size:11.5px;color:var(--dim);margin-top:18px;line-height:1.6}
 .rest{opacity:.42}
 [data-lift]{cursor:pointer}
@@ -1310,6 +1339,13 @@ function checkHTML(){
   <p class="daysub">${back
     ? "세트는 근육군 단위로 센다. 복귀판은 주 4회 · 주 단위라 이 숫자가 곧 주간 세트다. 실질 = 직접 + 간접 추정."
     : `세트는 근육군 단위로 센다. 실질 = 직접 + 간접 추정 — 이건 사이클당(${CYCLE}일) 세트다. 판정은 주당 환산(×7/${CYCLE})으로 내린다.`}</p>
+  ${(!back && D.budget)?(b=>`<div class="budget ${b.left<0?"bad":"ok"}">
+    <b>${b.state}</b>
+    <span>상한 <i>${b.cap}</i></span><span>현재 <i>${b.cur}</i></span>
+    <span>잔여 <i>${b.left}</i></span><span>실제 주당 <i>${b.weekly}</i></span>
+    <span>${b.cycle}일 주기</span>
+    ${b.left<0?`<div class="warn">다른 종목에서 ${Math.abs(b.left)}세트를 빼기 전에는 추가 금지</div>`:""}
+  </div>`)(D.budget):""}
   <table class="tbl"><thead><tr><th>근육군</th><th>직접</th><th>간접</th><th>실질</th>${wk?"<th>주당</th>":""}<th>판정</th>${adj?"<th>보정</th>":""}</tr></thead><tbody>
   ${rows.map(([m,dr,i,t,tag,v,,g,w])=>`<tr><td>${esc(m)}</td><td class="num">${dr}</td>
     <td class="num" style="color:var(--mute)">${i}</td><td class="num" style="font-weight:800">${t}</td>

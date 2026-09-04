@@ -422,6 +422,13 @@ def parse_day(ws):
     return day
 
 
+# 판정 문자열 → 색. 하한 미달은 노랑(정보)에 그치고 빨강은 상한 초과에만 준다 —
+# 볼륨을 늘리라는 신호가 아니라 줄이라는 신호에만 경보를 붙인다.
+# 재택 시트는 성장/유지/유지 미만/상한, 복귀 시트는 아직 충분/하한/보완 필요를 쓴다.
+VERDICT_TAG = {"성장": "ok", "유지": "ok", "충분": "ok",
+               "상한": "bad", "과다 점검": "bad"}
+
+
 def parse_check(wb, sheet="세트검산", adj_col=None):
     """근육군별 검산표. adj_col을 주면 그 열을 '현장 일 보정' 등급으로 함께 읽는다.
 
@@ -436,7 +443,7 @@ def parse_check(wb, sheet="세트검산", adj_col=None):
         direct, ind = num(ws.cell(r, 2).value), num(ws.cell(r, 3).value)
         real = num(ws.cell(r, 4).value, direct + ind)
         verdict = s(ws.cell(r, 5).value)
-        tag = "ok" if verdict == "충분" else ("lo" if verdict == "하한" else "bad")
+        tag = VERDICT_TAG.get(verdict, "lo")
         rows.append([name, half(direct), half(ind), half(real), tag, verdict,
                      s(ws.cell(r, 6).value),
                      s(ws.cell(r, adj_col).value) if adj_col else "",
@@ -477,8 +484,13 @@ def parse_plan(wb):
         d = s(ws.cell(r, 1).value)
         if not d or d == "합계":
             break
-        rows.append([d, s(ws.cell(r, c_body).value),
-                     int(num(ws.cell(r, c_sets).value))])
+        body, sets = s(ws.cell(r, c_body).value), int(num(ws.cell(r, c_sets).value))
+        # openpyxl로 워크북을 저장하면 수식 캐시가 비고, 여기 세트가 전부 0으로 읽힌다.
+        # 그대로 빌드하면 개요 화면이 0세트인 앱이 조용히 배포된다 — 2026-09-04에 실제로 겪었다.
+        if sets == 0 and body and "휴식" not in body:
+            print(f"[중단] 주간계획 {d}일차 '{body}' 세트가 0입니다 — 엑셀 수식 캐시가 비었습니다.")
+            sys.exit("        워크북을 엑셀로 열어 Ctrl+Alt+F9 (전체 재계산) 후 저장하고 다시 실행하세요.")
+        rows.append([d, body, sets])
         r += 1
 
     return {"sub": s(ws.cell(2, 1).value), "rows": rows,
@@ -732,8 +744,8 @@ def build(xlsx_path, out_path):
         print(f"       중량 {data['config']['week']}주차 · 볼륨 {vw}주차"
               + (f" (앞세움 +{RAMP_WEEK_OFFSET})" if RAMP_WEEK_OFFSET else ""))
     for row in data["check"]:
-        if row[4] != "ok":
-            print(f"  [주의] {row[0]}: 실질 {row[3]}세트 — {row[5]}")
+        if row[4] == "bad":
+            print(f"  [주의] {row[0]}: 실질 {row[3]}세트 — {row[5]} (주당 {row[8]})")
 
 
 # ── HTML 템플릿 ──────────────────────────────────────────────────

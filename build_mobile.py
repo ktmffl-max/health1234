@@ -628,6 +628,46 @@ def parse_progress_notes(wb):
     return parse_notes_block(wb["증량기록"], 23, "운용 규칙")
 
 
+def parse_log(wb):
+    """증량기록의 실제 기록 — 미달 시 반복수 · 메모 · 다음날 피로 · 관절 이상.
+
+    앱이 엑셀과 같은 규칙(공란·O = 다음 사이클 증량, 그 밖의 입력 = 유지)으로
+    중량을 내므로 엑셀에 적힌 기록은 여기서 실려 가고, 폰에서 적은 기록이 그 위에 얹힌다.
+    값이 하나도 없는 사이클은 넣지 않는다 — 없는 데이터는 없는 채로 둔다.
+    열은 머리글로 찾는다: '<종목> 목표' 바로 오른쪽의 '미달 시 …' 열이 그 종목의 기록이다."""
+    if "증량기록" not in wb.sheetnames:
+        return {}
+    ws = wb["증량기록"]
+    hdr = next((r for r in range(1, 20) if s(ws.cell(r, 1).value) == "사이클"), None)
+    if hdr is None:
+        return {}
+    heads = {c: s(ws.cell(hdr, c).value) for c in range(1, ws.max_column + 1)}
+    cols = {}
+    for c, h in heads.items():
+        for key, m in LIFT_META.items():
+            if h.startswith(m["ko"]) and heads.get(c + 1, "").startswith("미달"):
+                cols[key] = c + 1
+        if h == "메모":
+            cols["memo"] = c
+        elif h.startswith("다음날 피로"):
+            cols["fat"] = c
+        elif h.startswith("관절"):
+            cols["joint"] = c
+    out, seen = {}, False
+    for r in range(hdr + 1, ws.max_row + 1):
+        m = re.match(r"(\d+)", s(ws.cell(r, 1).value))
+        if not m:
+            if seen:
+                break
+            continue
+        seen = True
+        row = {f: s(ws.cell(r, c).value) for f, c in cols.items()}
+        row = {f: v for f, v in row.items() if v}
+        if row:
+            out[int(m.group(1))] = row
+    return out
+
+
 def all_ex(day):
     """요일 하나의 종목 전부. 그룹으로 묶인 시트와 평평한 시트 양쪽을 같이 다룬다."""
     return (day.get("ex") or []) + [x for _, g in (day.get("groups") or []) for x in g]
@@ -707,6 +747,7 @@ def build(xlsx_path, out_path):
         "ramp":   parse_ramp(wb),
         "backPlan": parse_back_plan(wb),
         "progressNotes": parse_progress_notes(wb),
+        "log":    parse_log(wb),
         "anchor": parse_anchor(wb),
         "source": Path(xlsx_path).name,
     }
@@ -756,6 +797,11 @@ def build(xlsx_path, out_path):
             f"{r['label']} {r['total']}세트" for r in data["ramp"]["rows"]))
         print(f"       중량 {data['config']['week']}주차 · 볼륨 {vw}주차"
               + (f" (앞세움 +{RAMP_WEEK_OFFSET})" if RAMP_WEEK_OFFSET else ""))
+    if data["log"]:
+        print(f"  증량기록: 엑셀에 {len(data['log'])}사이클 기록 있음 "
+              f"({', '.join(str(c) + '사이클' for c in sorted(data['log']))})")
+    else:
+        print("  증량기록: 엑셀 쪽은 비어 있음 — 폰에서 적은 기록은 앱 증량 탭에서 옮겨 적는다")
     if data["budget"]:
         b = data["budget"]
         print(f"  예산 {b['state']} · 상한 {b['cap']} · 현재 {b['cur']} · 잔여 {b['left']}"
@@ -946,6 +992,43 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .ovbox li{font-size:12.5px;color:var(--mute);line-height:1.65}
 .ovbox button{font:inherit;font-size:12px;font-weight:700;padding:7px 12px;border-radius:9px;
   background:transparent;color:var(--sq);border:1px solid var(--sq);cursor:pointer}
+.ovbox button.plain{color:var(--ink);border-color:var(--line);background:var(--raised)}
+.log-text{margin-top:10px}
+.log-text summary{font-size:11.5px;color:var(--dim);cursor:pointer}
+.log-text pre{font:inherit;font-size:12px;color:var(--mute);white-space:pre-wrap;word-break:break-all;
+  margin:8px 0 0;padding:9px 10px;background:var(--bg);border-radius:8px;user-select:text;-webkit-user-select:text}
+
+/* ── 증량 기록 ──────────────────────────────────────────────────── */
+.logcard{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:2px 14px 4px;margin-bottom:18px}
+.logcard-h{display:flex;align-items:baseline;gap:8px;padding:12px 0 7px}
+.logcard-h b{font-size:17px;font-weight:800;letter-spacing:-.02em}
+.logcard-h span{font-size:12px;color:var(--mute)}
+.log-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;
+  border-top:1px solid rgba(51,59,69,.45)}
+.log-l{flex:1;min-width:0}
+.log-l b{display:block;font-size:14px;font-weight:700;letter-spacing:-.02em}
+.log-l span{display:block;font-size:11.5px;color:var(--mute);margin-top:1px;line-height:1.4}
+.log-l em{display:block;font-style:normal;font-size:11px;font-weight:700;color:var(--sq);margin-top:3px;line-height:1.4}
+.seg{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:6px;flex:0 0 auto;max-width:58%}
+.seg button{font:inherit;font-size:12.5px;font-weight:700;padding:7px 11px;border-radius:9px;
+  background:var(--raised);color:var(--mute);border:1px solid var(--line);cursor:pointer}
+.seg button.on{color:var(--bg);border-color:var(--ink);background:var(--ink)}
+.seg button.on.ok{color:#fff;border-color:var(--mp);background:var(--mp)}
+.seg button.on.bad{color:#fff;border-color:var(--sq);background:var(--sq)}
+.seg.fat{gap:4px}
+.seg.fat button{padding:7px 0;width:32px;text-align:center}
+.log-in{font:inherit;font-size:14px;font-weight:700;background:var(--raised);color:var(--ink);
+  border:1px solid var(--line);border-radius:9px;padding:7px 9px;width:118px;text-align:right}
+.log-in.wide{width:50%;text-align:left;font-weight:600}
+.lm{display:block;font-style:normal;font-size:10px;font-weight:800;margin-top:2px;line-height:1.2;white-space:normal}
+.lm.ok{color:var(--mp)}
+.lm.bad{color:var(--sq)}
+.tbl tr[data-logrow]{cursor:pointer}
+.lift-log{padding:11px 16px 13px;border-top:1px solid var(--line);display:flex;align-items:center;
+  justify-content:space-between;gap:10px;background:var(--surface)}
+.lift-log-h{flex:1;min-width:0;font-size:12px;font-weight:800;color:var(--mute);letter-spacing:.02em;line-height:1.4}
+.lift-log-h span{font-weight:600;color:var(--dim)}
+.lift-log-h em{display:block;font-style:normal;font-size:11px;color:var(--sq);margin-top:3px;font-weight:700}
 
 /* ── 달력 ──────────────────────────────────────────────────────── */
 .cal-bar{display:flex;align-items:center;gap:8px;margin:2px 0 12px}
@@ -1091,7 +1174,52 @@ for(const k in OV.lifts){ if(!LIFT[k]||LIFT[k].start!==OV.lifts[k].base){ delete
 for(const k in OV.ex){ const e=exByKey(k); if(!e||e.w!==OV.ex[k].base){ delete OV.ex[k]; ovStale=true; } }
 if(ovStale) saveOV();
 const startOf = k => OV.lifts[k] ? OV.lifts[k].start : LIFT[k].start;
-const workWeight = (k,w) => startOf(k) + LIFT[k].inc*(w-1);
+
+/* ── 증량 기록 — 이 폰에 남는 실측 ────────────────────────────────
+   엑셀 증량기록과 같은 규칙이다: 공란·O는 다음 사이클에 증량, 미달 반복수(또는 X)를
+   적으면 그 중량을 한 사이클 더 든다. 엑셀에 적힌 값(D.log)이 바탕이고 폰에서 적은
+   값이 그 위에 얹힌다. 엑셀과 같은 값은 폰에 따로 두지 않는다 — 옮겨 적고 나면
+   폰 쪽은 저절로 비고, 남은 것만 '이 폰에만 있는 기록'으로 뜬다. */
+const LGK="wk-log";
+let LOG={};
+try{ const o=JSON.parse(localStorage.getItem(LGK)||"null"); if(o&&typeof o==="object") LOG=o; }catch(e){}
+const XL = D.log||{};
+const LOGF={fat:"다음날 피로",joint:"관절 이상",memo:"메모"};
+const xlVal = (c,f) => (XL[c]&&XL[c][f]!=null) ? String(XL[c][f]) : "";
+function saveLog(){ try{ localStorage.setItem(LGK,JSON.stringify(LOG)); }catch(e){} }
+(function(){ let ch=false;
+  for(const c in LOG){
+    for(const f in LOG[c]) if(LOG[c][f]===xlVal(c,f)){ delete LOG[c][f]; ch=true; }
+    if(!Object.keys(LOG[c]).length){ delete LOG[c]; ch=true; } }
+  if(ch) saveLog(); })();
+function logVal(c,f){ const l=LOG[c]&&LOG[c][f]; return l!==undefined ? l : xlVal(c,f); }
+function setLog(c,f,v){
+  v=String(v==null?"":v).trim();
+  if(!LOG[c]) LOG[c]={};
+  if(v===xlVal(c,f)) delete LOG[c][f]; else LOG[c][f]=v;
+  if(!Object.keys(LOG[c]).length) delete LOG[c];
+  saveLog();
+}
+const isDone = v => v===""||/^[oO○]$/.test(v);        /* 엑셀: OR(칸="",칸="O") */
+const missed = (k,c) => !isDone(logVal(c,k));
+/* w사이클 중량 = 시작 + 증량폭 × (그 앞에서 증량된 사이클 수). 미달한 사이클은 다음으로 안 올린다 */
+function stepsTo(k,w){ let n=0; for(let c=1;c<w;c++) if(!missed(k,c)) n++; return n; }
+const workWeight = (k,w) => startOf(k) + LIFT[k].inc*stepsTo(k,w);
+const xlWeight   = (k,w) => LIFT[k].start + LIFT[k].inc*stepsTo(k,w);
+/* w사이클 직전까지 같은 종목이 몇 사이클 연속 미달인지. 3이면 엑셀 규칙 "10% 디로드 후 재상승" —
+   자동으로 내리지는 않는다. 중량을 탭해서 직접 고치면 웜업·원판이 따라온다 */
+function missRun(k,w){ let n=0; for(let c=w-1;c>=1&&missed(k,c);c--) n++; return n; }
+function deloadNote(k,w){
+  const cut = () => fmt(Math.max(20,R(workWeight(k,w)*0.9)));
+  if(missRun(k,w)>=3)   return `앞 3사이클 연속 미달 — 규칙은 이 사이클 10% 디로드(${cut()}kg)`;
+  if(missRun(k,w+1)>=3) return `3사이클 연속 미달 — 규칙은 다음 사이클 10% 디로드(${cut()}kg)`;
+  return "";
+}
+/* 사이클 c의 1일차 날짜. 달력 기준점에서 주기 길이만큼 되감거나 앞으로 센다 */
+function cycleDate(c){
+  if(!ANCHOR) return "";
+  const d=ymdParse(ANCHOR.date); d.setDate(d.getDate()+(c-ANCHOR.cycle)*CYCLE); return ymd(d);
+}
 
 /* ── 볼륨 램프 — 종목 복귀 방식 ───────────────────────────────────
    계수로 전 종목을 한꺼번에 깎던 방식을 버렸다. 종목마다 '복귀 주차'(엑셀 K열)가 있고,
@@ -1141,7 +1269,7 @@ function liftCard(key,week,sets){
       <div class="lift-name"><div class="eyebrow">MAIN LIFT</div><h3>${L.ko}</h3>
         <p class="num">5년 전 ${fmt(L.prev)}kg · 본세트 5회 × ${ws}세트${ws!==L.sets?` <span style="color:var(--dim)">(설계 ${L.sets})</span>`:""}</p></div>
       <div class="bigw ${OV.lifts[key]?'edited':''}" data-lift="${key}"><b class="num">${fmt(work)}</b><i>kg</i>${
-        OV.lifts[key]?`<span class="ovnote">수정됨 · 엑셀 기준 ${fmt(LIFT[key].start+LIFT[key].inc*(week-1))}kg</span>`:""}</div>
+        OV.lifts[key]?`<span class="ovnote">수정됨 · 엑셀 기준 ${fmt(xlWeight(key,week))}kg</span>`:""}</div>
     </div>
     <div class="bar"><div class="bar-label">한쪽 원판 구성</div>${stackHTML(work)}</div>
     <div class="ramp">
@@ -1149,7 +1277,24 @@ function liftCard(key,week,sets){
       ${rp}
       <div class="work r-w">${fmt(work)}<span style="font-size:11px;color:var(--mute)"> kg</span></div>
       <div class="work r-x num">5회</div><div class="work r-x num">${ws}세트</div>
-    </div></section>`;
+    </div>
+    ${liftLogHTML(key,week)}</section>`;
+}
+/* 본세트 결과 한 줄 — 세션 끝나고 그 자리에서 적는다. 증량 탭의 카드와 같은 저장소다 */
+function liftLogHTML(key,week){
+  const dl=deloadNote(key,week), held=missRun(key,week)>0;
+  return `<div class="lift-log"><div class="lift-log-h">이번 사이클 결과 <span>· ${week}사이클${
+      held?` · 앞 사이클 미달로 중량 유지`:""}</span>${dl?`<em>${esc(dl)}</em>`:""}</div>${logCtl(key,week)}</div>`;
+}
+/* 한 종목 · 한 사이클 기록 조각 — [달성] [미달 N회]. 같은 버튼을 다시 누르면 비운다(미기록) */
+function logCtl(k,c){
+  const v=logVal(c,k), done=v!==""&&isDone(v), miss=v!==""&&!isDone(v);
+  const reps=/^\d+$/.test(v)?v:"";
+  return `<div class="seg" data-logk="${k}" data-logc="${c}">
+    <button class="${done?'on ok':''}" data-logv="O">달성</button>
+    <button class="${miss?'on bad':''}" data-logv="X">미달</button>
+    ${miss?`<input class="log-in num" type="text" inputmode="numeric" data-logrep="1" value="${escAttr(reps)}" placeholder="마지막 세트 회">`:""}
+  </div>`;
 }
 const esc = t => String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;");
 const escAttr = t => esc(t).replace(/"/g,"&quot;");
@@ -1402,18 +1547,77 @@ function backPlanHTML(){
   </tbody></table>${notesHTML(p.notes)}`;
 }
 function progressHTML(week){
-  const keys=Object.keys(LIFT), rows=[];
+  const keys=Object.keys(LIFT), c=week, cur=cycleOf(ymd(new Date()));
+  const date=cycleDate(c), fat=logVal(c,"fat");
+  const card=`<section class="logcard">
+    <div class="logcard-h"><b>${c}사이클 기록</b><span>${date?`${+date.slice(5,7)}/${+date.slice(8)} 시작`:""}${
+      cur&&cur.cycle===c?" · 지금":""}</span></div>
+    ${keys.map(k=>{ const dl=deloadNote(k,c);
+      return `<div class="log-row" style="--accent:${LIFT[k].accent}">
+      <div class="log-l"><b>${esc(LIFT[k].ko)}</b><span class="num">${fmt(workWeight(k,c))}kg × 5회 × ${LIFT[k].sets}세트${
+        missRun(k,c)>0?" · 앞 사이클 미달로 유지":""}</span>${dl?`<em>${esc(dl)}</em>`:""}</div>
+      ${logCtl(k,c)}</div>`; }).join("")}
+    <div class="log-row"><div class="log-l"><b>다음날 피로</b><span>0 가뿐 · 3 뻐근하지만 훈련 가능 · 5 탈진. 다음 세션 아침에</span></div>
+      <div class="seg fat">${[0,1,2,3,4,5].map(n=>`<button class="${fat===String(n)?'on':''}" data-logf="fat" data-logc="${c}" data-logv="${n}">${n}</button>`).join("")}</div></div>
+    <div class="log-row"><div class="log-l"><b>관절 이상</b><span>없으면 비워둔다 · 부위와 0~10</span></div>
+      <input class="log-in wide" type="text" data-logf="joint" data-logc="${c}" value="${escAttr(logVal(c,"joint"))}" placeholder="예: 무릎 3"></div>
+    <div class="log-row"><div class="log-l"><b>메모</b></div>
+      <input class="log-in wide" type="text" data-logf="memo" data-logc="${c}" value="${escAttr(logVal(c,"memo"))}" placeholder="—"></div>
+  </section>`;
+
+  const mark = v => v==="" ? "" : isDone(v) ? `<i class="lm ok">달성</i>`
+    : `<i class="lm bad">${/^\d+$/.test(v)?v+"회":"미달"}</i>`;
+  const rows=[];
   for(let w=1;w<=WEEKS;w++){
-    rows.push(`<tr style="${w===week?'background:var(--raised)':''}"><td class="num">${w}주</td>`+
-      keys.map(k=>`<td class="num">${fmt(workWeight(k,w))}</td>`).join("")+`</tr>`);
+    const j=logVal(w,"joint"), f=logVal(w,"fat");
+    rows.push(`<tr data-logrow="${w}" style="${w===week?'background:var(--raised)':''}"><td class="num">${w}</td>`+
+      keys.map(k=>`<td class="num">${fmt(workWeight(k,w))}${mark(logVal(w,k))}</td>`).join("")+
+      `<td class="num">${esc(f)}${j?`<i class="lm bad">${esc(j)}</i>`:""}</td></tr>`);
   }
-  return `<h2 class="daytitle">증량 계획</h2>
-  <p class="daysub">목표 반복을 못 채운 주가 없다고 가정한 계획선. 실제 진행은 증량기록 시트가 결정한다.</p>
-  <table class="tbl"><thead><tr><th>주차</th>${keys.map(k=>`<th>${esc(LIFT[k].ko)}</th>`).join("")}</tr></thead>
+  const mine=phoneOnly(), lines=logLines();
+  return `<h2 class="daytitle">증량 기록</h2>
+  <p class="daysub">엑셀 증량기록과 같은 규칙 — 달성·공란은 다음 사이클에 오르고, 미달을 적으면 그 중량을 한 번 더 든다.
+    위 −/+ 로 사이클을 옮긴다. 기억으로 소급해 채우지 말 것.</p>
+  ${card}
+  <table class="tbl"><thead><tr><th>사이클</th>${keys.map(k=>`<th>${esc(LIFT[k].ko)}</th>`).join("")}<th>피로</th></tr></thead>
   <tbody>${rows.join("")}</tbody></table>
-  <div class="notes"><h5>주당 증량폭</h5><ul>${keys.map(k=>
+  <p class="footnote">표의 중량은 위 기록을 반영한 값이다 — 미달 뒤 사이클은 오르지 않는다. 줄을 누르면 그 사이클을 적는다.</p>
+  ${mine.length?`<div class="ovbox"><h5>이 폰에만 있는 기록 <span>· 엑셀 증량기록에 옮겨 적으면 여기서 사라진다</span></h5>
+    <ul>${mine.map(t=>`<li>${esc(t)}</li>`).join("")}</ul>
+    <button id="log-copy" class="plain">전체 기록 텍스트로 복사</button>
+    <details class="log-text"><summary>복사가 안 되면 여기서 길게 눌러 복사</summary><pre>${esc(lines.join("\n"))}</pre></details></div>`:""}
+  <div class="notes"><h5>사이클당 증량폭</h5><ul>${keys.map(k=>
     `<li>${esc(LIFT[k].ko)} ${fmt(LIFT[k].inc)}kg</li>`).join("")}</ul></div>
   ${notesHTML(D.progressNotes)}`;
+}
+/* 사이클별 한 줄 — 엑셀 증량기록에 옮겨 적기 위한 텍스트. 기록이 있는 사이클만 */
+function logLines(){
+  const keys=Object.keys(LIFT), out=[];
+  for(let c=1;c<=WEEKS;c++){
+    const p=[];
+    keys.forEach(k=>{ const v=logVal(c,k); if(v==="") return;
+      p.push(LIFT[k].ko+" "+(isDone(v)?"O":(/^\d+$/.test(v)?v+"회":"X"))); });
+    for(const f in LOGF){ const v=logVal(c,f); if(v) p.push(LOGF[f]+" "+v); }
+    if(p.length) out.push(`${c}사이클${cycleDate(c)?" ("+cycleDate(c)+")":""} · `+p.join(" · "));
+  }
+  return out;
+}
+/* 폰에 있고 엑셀엔 없는(또는 다른) 칸 */
+function phoneOnly(){
+  const items=[];
+  Object.keys(LOG).map(Number).sort((a,b)=>a-b).forEach(c=>{ for(const f in LOG[c]){
+    const x=xlVal(c,f), v=LOG[c][f];
+    const name=LIFT[f]?LIFT[f].ko:LOGF[f]||f;
+    items.push(`${c}사이클 ${name} — ${v===""?"비움":(LIFT[f]&&isDone(v))?"달성(O)":v}${x?` (엑셀에는 ${x})`:""}`);
+  }});
+  return items;
+}
+function logCopy(btn){
+  const text=logLines().join("\n");
+  const ok=()=>{ btn.textContent="복사됨"; setTimeout(()=>{ btn.textContent="전체 기록 텍스트로 복사"; },1500); };
+  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(ok,()=>{ btn.textContent="복사 실패 — 아래에서 길게 눌러 복사"; }); return; }
+  try{ const ta=document.createElement("textarea"); ta.value=text; document.body.appendChild(ta); ta.select();
+    document.execCommand("copy"); ta.remove(); ok(); }catch(e){ btn.textContent="복사 실패 — 아래에서 길게 눌러 복사"; }
 }
 
 /* ── 중량 편집 UI ── 숫자를 탭 → 입력 → 확인(엔터·바깥 탭)으로 저장.
@@ -1436,8 +1640,9 @@ function editLift(el,k,after){
     const n=parseFloat(v);
     if(v===""){ delete OV.lifts[k]; }
     else if(!isNaN(n)&&n>0){
-      // 이번 주 무게를 입력받아 시작중량을 역산 — 이후 주차·원판·웜업이 전부 따라온다
-      const start=n-LIFT[k].inc*(week-1);
+      // 이번 사이클 무게를 입력받아 시작중량을 역산 — 이후 사이클·원판·웜업이 전부 따라온다.
+      // 미달로 유지된 사이클은 기록이 이미 빼고 세므로 여기서도 같은 계단 수를 쓴다
+      const start=n-LIFT[k].inc*stepsTo(k,week);
       if(Math.abs(start-LIFT[k].start)<0.001) delete OV.lifts[k];
       else OV.lifts[k]={start:start, base:LIFT[k].start};
     }
@@ -1924,6 +2129,28 @@ function bindEdits(){
   document.querySelectorAll("[data-tm]").forEach(el=>{ el.onclick=()=>{
     const d=(mode==="home"?D.home:D.back)[tab];
     if(d&&!d.rest) tmStart(d,el.dataset.tm||null); }; });
+  /* 증량 기록 — 달성/미달 토글, 미달 반복수, 피로 0~5, 관절·메모 */
+  document.querySelectorAll("[data-logv]:not([data-logf])").forEach(b=>{ b.onclick=()=>{
+    const seg=b.closest(".seg"), k=seg.dataset.logk, c=seg.dataset.logc, v=b.dataset.logv;
+    const cur=logVal(c,k), same = v==="O" ? (cur!==""&&isDone(cur)) : (cur!==""&&!isDone(cur));
+    setLog(c,k, same?"":v); render();
+    if(!same&&v==="X"){ const i=document.querySelector(`.seg[data-logk="${k}"][data-logc="${c}"] input`); if(i) i.focus(); }
+  }; });
+  document.querySelectorAll("[data-logrep]").forEach(i=>{
+    i.onchange=()=>{ const seg=i.closest(".seg"), v=i.value.replace(/\D/g,"");
+      setLog(seg.dataset.logc, seg.dataset.logk, v||"X"); render(); };
+    i.onkeydown=ev=>{ if(ev.key==="Enter") i.blur(); };
+  });
+  document.querySelectorAll("[data-logf]").forEach(el=>{
+    const c=el.dataset.logc, f=el.dataset.logf;
+    if(el.tagName==="BUTTON") el.onclick=()=>{ const v=el.dataset.logv; setLog(c,f, logVal(c,f)===v?"":v); render(); };
+    else { el.onchange=()=>{ setLog(c,f,el.value); render(); };
+           el.onkeydown=ev=>{ if(ev.key==="Enter") el.blur(); }; }
+  });
+  document.querySelectorAll("[data-logrow]").forEach(tr=>{ tr.onclick=ev=>{
+    if(ev.target.closest("input,button")) return;
+    week=Number(tr.dataset.logrow); render(); }; });
+  const lc=document.getElementById("log-copy"); if(lc) lc.onclick=()=>logCopy(lc);
 }
 
 let mode="home", week=D.config.week||1, tab=D.homeOrder[0];

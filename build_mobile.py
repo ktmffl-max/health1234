@@ -248,6 +248,12 @@ def num(v, default=0):
         return default
 
 
+def half(v, default=0):
+    """검산 표시용 숫자. 간접은 0.5 단위라 정수로 자르면 11.5가 11이 된다."""
+    x = round(num(v, default), 1)
+    return int(x) if x == int(x) else x
+
+
 def rest_ramp(v):
     """세트별 휴식 칸 — "150/170/190/215/240" (초, 세트 순).
 
@@ -419,7 +425,8 @@ def parse_day(ws):
 def parse_check(wb, sheet="세트검산", adj_col=None):
     """근육군별 검산표. adj_col을 주면 그 열을 '현장 일 보정' 등급으로 함께 읽는다.
 
-    재택 시트는 G열이 합산 라벨이라 adj_col을 주지 않고, 복귀 시트만 G열에 보정 등급이 있다."""
+    재택 시트는 G열이 합산 라벨이라 adj_col을 주지 않고, 복귀 시트만 G열에 보정 등급이 있다.
+    J열(주당 환산)은 8일 주기인 재택 시트에만 있다 — 복귀판은 주 단위라 환산이 없어 0이 실린다."""
     ws = wb[sheet]
     rows = []
     for r in range(5, ws.max_row + 1):
@@ -430,9 +437,10 @@ def parse_check(wb, sheet="세트검산", adj_col=None):
         real = num(ws.cell(r, 4).value, direct + ind)
         verdict = s(ws.cell(r, 5).value)
         tag = "ok" if verdict == "충분" else ("lo" if verdict == "하한" else "bad")
-        rows.append([name, int(direct), int(ind), int(real), tag, verdict,
+        rows.append([name, half(direct), half(ind), half(real), tag, verdict,
                      s(ws.cell(r, 6).value),
-                     s(ws.cell(r, adj_col).value) if adj_col else ""])
+                     s(ws.cell(r, adj_col).value) if adj_col else "",
+                     half(ws.cell(r, 10).value)])
     return rows
 
 
@@ -1282,15 +1290,18 @@ function checkHTML(){
   const back = mode==="back", rows = back ? D.backCheck : D.check;
   if(!rows||!rows.length) return `<h2 class="daytitle">세트 검산</h2><p class="daysub">표가 없습니다.</p>`;
   const adj = back && rows.some(r=>r[7]);
+  /* 주당 환산(J열)은 8일 주기인 재택 시트에만 있다. 판정이 이 값으로 내려지므로 같이 띄운다. */
+  const wk  = rows.some(r=>r[8]), span = (adj?4:3) + (wk?1:0);
   return `<h2 class="daytitle">세트 검산</h2>
   <p class="daysub">${back
     ? "세트는 근육군 단위로 센다. 복귀판은 주 4회 · 주 단위라 이 숫자가 곧 주간 세트다. 실질 = 직접 + 간접 추정."
-    : "세트는 근육군 단위로 센다. 실질 = 직접 + 간접 추정."}</p>
-  <table class="tbl"><thead><tr><th>근육군</th><th>직접</th><th>간접</th><th>실질</th><th>판정</th>${adj?"<th>보정</th>":""}</tr></thead><tbody>
-  ${rows.map(([m,dr,i,t,tag,v,,g])=>`<tr><td>${esc(m)}</td><td class="num">${dr}</td>
+    : "세트는 근육군 단위로 센다. 실질 = 직접 + 간접 추정 — 이건 사이클당(8일) 세트다. 판정은 주당 환산(×7/8)으로 내린다."}</p>
+  <table class="tbl"><thead><tr><th>근육군</th><th>직접</th><th>간접</th><th>실질</th>${wk?"<th>주당</th>":""}<th>판정</th>${adj?"<th>보정</th>":""}</tr></thead><tbody>
+  ${rows.map(([m,dr,i,t,tag,v,,g,w])=>`<tr><td>${esc(m)}</td><td class="num">${dr}</td>
     <td class="num" style="color:var(--mute)">${i}</td><td class="num" style="font-weight:800">${t}</td>
+    ${wk?`<td class="num">${w||"—"}</td>`:""}
     <td><span class="judge j-${tag}">${esc(v)}</span></td>${adj?`<td class="num" style="color:var(--mute)">${esc(g||"—")}</td>`:""}</tr>`).join("")}
-  <tr><td style="font-weight:800">직접 세트 총계</td><td class="num" style="font-weight:800">${rows.reduce((a,r)=>a+r[1],0)}</td><td colspan="${adj?4:3}"></td></tr>
+  <tr><td style="font-weight:800">직접 세트 총계</td><td class="num" style="font-weight:800">${rows.reduce((a,r)=>a+r[1],0)}</td><td colspan="${span}"></td></tr>
   </tbody></table>
   ${adj?`<div class="notes"><h5>현장 일 보정</h5><ul>
     <li><b style="color:var(--ink)">높음</b> — 현장 일이 하루치를 얹는다. 판정이 하한 미달이어도 실제로는 채워진다.</li>

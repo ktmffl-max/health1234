@@ -381,6 +381,9 @@ def parse_day(ws):
                 "ind": s(ws.cell(r, C("간접 자극")).value) if C("간접 자극") else "",
                 # 이 종목이 몇 주차부터 나오는지. 열이 없는 워크북은 전부 1 = 램프 없음
                 "rw": int(num(ws.cell(r, C("복귀 주차")).value, 1)) if C("복귀 주차") else 1,
+                # 마지막 세트에 붙는 드롭 세트 시간(초). 열이 없거나 비면 0 = 드롭 없음.
+                # 세트 수(E열)는 그대로다 — 드롭은 같은 세트의 연장이지 새 세트가 아니다
+                "drop": int(num(ws.cell(r, C("드롭(초)")).value)) if C("드롭(초)") else 0,
             }
             # 메인 리프트 중량은 주차에 따라 바뀌므로 상단 카드로 넘긴다
             if day["main"] and item["n"] == 1 and "본세트" in item["name"]:
@@ -705,6 +708,8 @@ def build_voice(site, data):
         say.setdefault(voice_build.hundreds(h), voice_build.hundreds(h))
     for w in list(voice_build.FRAC.values()) + ["점"] + voice_build.UNITS:
         say.setdefault(w, w)
+    # 드롭이 걸린 종목의 마지막 세트 시작에 '운동' 뒤에 붙는 한 마디
+    say.setdefault("드롭세트", "드롭 세트")
 
     say = {k: v for k, v in say.items() if v}
     # 삐 소리 뒤에 붙는 네 마디는 이미 구워져 있다. 다시 굽지 않고 그대로 넣는다 —
@@ -920,7 +925,7 @@ main{padding:18px var(--pad) 0;max-width:640px;margin:0 auto}
 .ex-t{flex:1;min-width:0}
 .ex-t h4{margin:0;font-size:15.5px;font-weight:700;letter-spacing:-.02em}
 .ex-t .mg{font-size:11.5px;color:var(--mute);margin-top:1px}
-.ex-t .mg .ss{color:var(--mp);font-weight:800}
+.ex-t .mg .ss,.ex-t .mg .drop{color:var(--mp);font-weight:800}
 .ex-p{text-align:right;flex:0 0 auto}
 .ex-p b{font-size:16px;font-weight:800;letter-spacing:-.02em;display:block}
 .ex-p span{font-size:11.5px;color:var(--mute)}
@@ -1314,9 +1319,9 @@ function exHTML(e,prefix,sets,timed){
       </div></div></article>`;
   return `<article class="ex"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
-      <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}</div></div>
+      <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}</div></div>
       <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${ov?'edited':''}"${canEdit?` data-exkey="${escAttr(key)}"`:""}>${esc(w)}</span></div></div>
-    ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${e.wk}초 · 휴식 ${restLabel(e)}</b></button></div>`
+    ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${e.wk}초 · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
     ${e.memo?`<div class="ex-memo">${esc(e.memo)}</div>`:""}
     ${e.alt?`<details><summary>대체 종목</summary><p>${esc(e.alt)}</p></details>`:""}</article>`;
@@ -1705,7 +1710,10 @@ function tmSteps(d,week,from){
   groups.forEach(g=>{ const n=Math.max.apply(null,g.map(S));
     for(let k=1;k<=n;k++) g.forEach(e=>{
       if(k>S(e)) return;
-      st.push({p:"work",t:e.wk,e:e,set:k,sets:S(e)});
+      /* 드롭이 걸린 종목(엑셀 O열)은 마지막 세트만 그 시간만큼 길게 잡고 표시를
+         남긴다 — 세트 시작 때 '드롭세트'라고 읊고 화면에도 적는다 */
+      const dp=(k===S(e)&&e.drop>0);
+      st.push({p:"work",t:e.wk+(dp?e.drop:0),e:e,set:k,sets:S(e),drop:dp});
       const rt=restAt(e,k);
       if(rt>0) st.push({p:"rest",t:rt,e:e,set:k,sets:S(e)});
     });});
@@ -1896,7 +1904,11 @@ function tmCueAt(kind,wall,idx){
   const at=tmAC.currentTime+Math.max(0,(wall-Date.now())/1000), n=[];
   let say=[];
   /* 삐 소리가 먼저 귀를 잡고, 뒤이어 무엇인지 말한다 */
-  if(kind==="work"){ n.push(tmTone(1046,.35,.6,at)); n.push(tmSay("work",at+.35+VAFTER)); }
+  if(kind==="work"){ n.push(tmTone(1046,.35,.6,at)); n.push(tmSay("work",at+.35+VAFTER));
+                     /* 드롭이 걸린 마지막 세트 — '운동' 뒤에 '드롭세트'를 잇는다.
+                        실패 뒤 쉬지 않고 무게를 내려 이어가라는 뜻이다 */
+                     const seg=TM&&TM.st[idx];
+                     if(seg&&seg.drop) say=tmSayAll(["드롭세트"],at+.35+VAFTER+tmDur("work")+VPAUSE); }
   else if(kind==="rest"){ const beep=.22+.15;   /* 두 번째 삐 소리가 끝나는 시각 */
                           n.push(tmTone(660,.15,.5,at)); n.push(tmTone(660,.15,.5,at+.22));
                           n.push(tmSay("rest",at+beep+VAFTER));
@@ -2028,11 +2040,11 @@ function tmPaint(){
   if(!TM) return;
   const s=TM.st[TM.i], nx=TM.st[TM.i+1], ph=PH[s.p];
   document.getElementById("tm-dial").style.setProperty("--phase",ph[1]);
-  document.getElementById("tm-phase").textContent=ph[0];
+  document.getElementById("tm-phase").textContent=ph[0]+(s.drop?" · 드롭":"");
   document.getElementById("tm-ctx").textContent=TM.title+" · "+s.li+"/"+s.ln+" 종목";
   document.getElementById("tm-name").textContent=s.e.name;
   tmSet("tm-meta",tmMeta(s.e));
-  document.getElementById("tm-set").textContent="세트 "+s.set+" / "+s.sets;
+  document.getElementById("tm-set").textContent="세트 "+s.set+" / "+s.sets+(s.drop?" · 드롭세트":"");
   document.getElementById("tm-time").textContent=
     mmss(TM.run?Math.max(0,Math.ceil((TM.endAt-Date.now())/1000)):Math.ceil(TM.rest/1000));
   document.getElementById("tm-play").textContent=TM.run?"일시정지":"계속";
@@ -2043,7 +2055,8 @@ function tmPaint(){
     ? "다음 ▸ <b>"+esc(nx.e.name)+"</b><i>"+tmMeta(nx.e)+" · "+nx.sets+"세트</i>"
     : !nx ? "마지막 세트"
     : s.p==="prep" ? "이어서 ▸ 운동 "+mmss(nx.t)+" × "+nx.sets+"세트"
-    : nx.p==="rest" ? "다음 ▸ 휴식 "+mmss(nx.t) : "다음 ▸ "+nx.set+"세트째");
+    : nx.p==="rest" ? "다음 ▸ 휴식 "+mmss(nx.t)
+    : "다음 ▸ "+nx.set+"세트째"+(nx.drop?" · 드롭세트 — 내릴 무게 준비":""));
 }
 function tmLoop(){
   if(!TM||!TM.run) return;

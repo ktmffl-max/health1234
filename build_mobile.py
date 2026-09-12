@@ -654,7 +654,8 @@ def parse_back_anchor(wb):
     블록을 아래쪽에 두고 행 번호에 의존하지 않는다. 칸이 없으면 None —
     그때는 앱이 복귀 달력 대신 '기준일을 채우라'는 안내를 띄운다."""
     ws = wb["시작중량_설정"]
-    want = {"복귀 시작일": "date", "복귀 시작 사이클": "cycle", "사이클 전진(주)": "step"}
+    want = {"프로그램 시작일": "date", "사이클 기준일": "cdate",
+            "기준 사이클": "cycle", "사이클 전진(주)": "step"}
     got = {}
     for r in range(1, ws.max_row + 1):
         key = want.get(s(ws.cell(r, 1).value))
@@ -662,9 +663,10 @@ def parse_back_anchor(wb):
             continue
         v = ws.cell(r, 3).value
         got[key] = v.strftime("%Y-%m-%d") if hasattr(v, "strftime") else int(num(v))
-    if not got.get("date") or not got.get("cycle"):
+    if not got.get("date") or not got.get("cdate") or not got.get("cycle"):
         return None
-    return {"date": got["date"], "cycle": got["cycle"], "step": got.get("step") or 2}
+    return {"date": got["date"], "cdate": got["cdate"],
+            "cycle": got["cycle"], "step": got.get("step") or 2}
 
 
 def parse_progress_notes(wb):
@@ -1474,21 +1476,25 @@ let BSESS={};  try{ BSESS=JSON.parse(localStorage.getItem(BCKEY)||"{}")||{}; }ca
 const bSave = () => { try{ localStorage.setItem(BSKEY,String(BSHIFT));
   localStorage.setItem(BCKEY,JSON.stringify(BSESS)); }catch(e){} };
 const dayAdd = (t,n) => { const d=ymdParse(t); d.setDate(d.getDate()+n); return ymd(d); };
-/* 기준일(+보정) 이후면 {주차, 사이클, 그 주 시작일}. 이전이면 null */
+/* 주차와 사이클은 기준이 다르다 — 주차는 프로그램 시작일에서 세는 숫자일 뿐이고,
+   사이클은 중량이 매달린 숫자라 사이클 기준일에서 따로 센다. 하나로 묶으면
+   주차를 맞추려다 중량까지 따라 움직인다. BSHIFT(미루기)는 사이클에만 건다. */
 function backWeekOf(t){
   if(!BA) return null;
-  const n=dayGap(t,BA.date)-BSHIFT*7;
+  const n=dayGap(t,BA.date);
   if(n<0) return null;
   const wk=Math.floor(n/7)+1;
-  return {wk, cycle: Math.min(WEEKS, BA.cycle+Math.floor((wk-1)/BA.step)),
-          from: dayAdd(BA.date, BSHIFT*7+(wk-1)*7)};
+  const cn=dayGap(t,BA.cdate)-BSHIFT*7;
+  const cyc=Math.min(WEEKS, Math.max(1, BA.cycle+Math.floor(cn/(BA.step*7))));
+  return {wk, cycle: cyc, from: dayAdd(BA.date,(wk-1)*7)};
 }
-/* 지금 쓰는 사이클보다 큰 사이클이 처음 시작되는 주. 손으로 먼저 올려 둔 경우에도
+/* 지금 쓰는 사이클보다 큰 사이클이 처음 시작되는 날. 손으로 먼저 올려 둔 경우에도
    '다음'이 과거를 가리키지 않는다. 마지막 사이클이면 null */
 function backNextAfter(eff){
-  for(let w=1; w<=WEEKS*BA.step+BA.step; w++){
-    const c=Math.min(WEEKS, BA.cycle+Math.floor((w-1)/BA.step));
-    if(c>eff) return {wk:w, cycle:c, from: dayAdd(BA.date, BSHIFT*7+(w-1)*7)};
+  for(let k=0; k<=WEEKS+2; k++){
+    const c=BA.cycle+k;
+    if(c>WEEKS) return null;
+    if(c>eff) return {cycle:c, from: dayAdd(BA.cdate, BSHIFT*7+k*BA.step*7)};
   }
   return null;
 }
@@ -1590,7 +1596,9 @@ function backCalHTML(){
   let head;
   if(cur){
     const nx=backNextAfter(eff), left=nx?dayGap(nx.from,tKey):0;
+    const wkFrom=cur.from, wkTo=dayAdd(cur.from,6);
     head=`<div class="cal-now"><b>복귀 ${cur.wk}주차 · ${eff}사이클</b>
+      <p class="num">${+wkFrom.slice(5,7)}/${+wkFrom.slice(8)}(월) ~ ${+wkTo.slice(5,7)}/${+wkTo.slice(8)}(일)</p>
       <p>${keys.map(k=>`${esc(LIFT[k].ko)} <b class="num">${fmt(workWeight(k,eff))}</b>kg`).join(" · ")}</p>
       <p>${nx
         ? `다음 증량 <b>${left<=0?"오늘":left+"일 뒤"}</b> — ${+nx.from.slice(5,7)}/${+nx.from.slice(8)}(월)부터 ${nx.cycle}사이클 ·
@@ -1612,23 +1620,28 @@ function backCalHTML(){
   }
 
   const cells=[];
-  for(let i=0;i<first.getDay();i++) cells.push(`<div class="cal-cell pad"></div>`);
+  const MON = d => (d.getDay()+6)%7;          /* 0 = 월 … 6 = 일 */
+  for(let i=0;i<MON(first);i++) cells.push(`<div class="cal-cell pad"></div>`);
   for(let dn=1;dn<=last.getDate();dn++){
     const d=new Date(ym.y,ym.m,dn), key=ymd(d), dow=d.getDay(), w=backWeekOf(key);
     const fix=FIX[dow], acc=ACC[dow]||"";
+    /* 주차는 줄 첫 칸(월)에 붙이고, 토 · 일에도 한 번 더 적는다 —
+       고정 세션 둘이 어느 주에 속하는지가 이 달력에서 제일 자주 묻는 것이다 */
+    const badge = w && (dow===1 ? `${w.wk}주차${w.cycle!==(backWeekOf(dayAdd(key,-7))||w).cycle?` · ${w.cycle}사이클`:""}`
+                      : dow===6||dow===0 ? `${w.wk}주차` : "");
     cells.push(`<div class="cal-cell${w?"":" blank"}${key===tKey?" today":""}${fix?"":" rest"}${dow===0?" sun":""}"
       style="${acc?`--acc:${acc}`:""}">
       <b>${dn}</b>${w?`${fix?`<i style="color:${acc}">${esc(D.back[fix]?D.back[fix].t.split(" ")[0]:fix)}</i>`
         :`<i class="num" style="color:var(--mute)">평일</i>`}
-      <span>${fix?"고정":"A · B 중"}</span>${dow===1?`<em>${w.wk}주차${
-        (w.wk-1)%BA.step===0?` · ${w.cycle}사이클`:""}</em>`:""}`:""}</div>`);
+      <span>${fix?"고정":"A · B 중"}</span>${badge?`<em>${badge}</em>`:""}`:""}</div>`);
   }
 
   /* 주별 세션 체크 — 4회 중 몇 했나. 평일 B를 2주 연속 뺐는지가 여기서 보인다 */
   const wks=[];
   if(cur) for(let i=Math.max(1,cur.wk-5);i<=cur.wk;i++){
-    const from=dayAdd(BA.date,BSHIFT*7+(i-1)*7);
-    const cyc=Math.max(Math.min(WEEKS,BA.cycle+Math.floor((i-1)/BA.step)), i===cur.wk?eff:0);
+    const from=dayAdd(BA.date,(i-1)*7);
+    const w=backWeekOf(from);
+    const cyc=Math.max(w?w.cycle:BA.cycle, i===cur.wk?eff:0);
     const got=BSESS[from]||{}, n=SLOTS.filter(s=>got[s]).length;
     wks.push(`<div class="log-row"${i===cur.wk?' style="--accent:var(--ink)"':""}>
       <div class="log-l"><b>${i}주차${i===cur.wk?" · 이번 주":""}</b>
@@ -1642,13 +1655,13 @@ function backCalHTML(){
     return SLOTS.some(s=>g[s]) && !g["평B"]; });
 
   return `<h2 class="daytitle">달력</h2>
-  <p class="daysub">복귀는 요일이 유동이라 일차가 없다 — <b>주차</b>가 단위다. 주차는 월요일에 넘어가고
-    사이클은 ${BA.step}주에 한 칸 올라간다. 중량은 오늘 날짜로 자동 계산되므로 셀 필요가 없다.</p>
+  <p class="daysub">복귀는 요일이 유동이라 일차가 없다 — <b>주차</b>가 단위다. 달력도 월요일부터 시작하므로
+    <b>가로 한 줄이 한 주</b>이고 토 · 일은 그 줄의 끝에 있다. 사이클은 ${BA.step}주에 한 칸 올라간다.</p>
   ${head}
   <div class="cal-bar"><button id="cal-prev">‹</button>
     <h3>${ym.y}년 ${ym.m+1}월</h3>
     <button id="cal-today">오늘</button><button id="cal-next">›</button></div>
-  <div class="cal-grid">${[...DOW].map((w,i)=>`<div class="cal-dow${i===0?" sun":""}">${w}</div>`).join("")}
+  <div class="cal-grid">${[..."월화수목금토일"].map((w,i)=>`<div class="cal-dow${i===6?" sun":""}">${w}</div>`).join("")}
     ${cells.join("")}</div>
   <div class="cal-key"><span><i style="background:var(--sq)"></i>토 고정 — 하체</span>
     <span><i style="background:var(--dl)"></i>일 고정 — 등</span>
@@ -1664,8 +1677,10 @@ function backFix(cur){
     <div class="cal-days"><button data-bshift="1">한 주 미루기</button>
       <button data-bshift="-1">한 주 당기기</button>
       ${BSHIFT?`<button data-bshift="0">엑셀 기준으로 (${BSHIFT>0?"+":""}${BSHIFT}주 보정 중)</button>`:""}</div>
-    <p class="footnote">디로드 주나 통째로 쉰 주가 있으면 미룬다 — 그만큼 사이클이 늦게 올라간다.
-      영구히 맞추려면 엑셀 '시작중량_설정'의 복귀 시작일을 뒤로 옮긴다.</p></details>`;
+    <p class="footnote"><b>디로드 주에는 반드시 누른다</b> — 세트가 절반인 주에 새 중량을 맞이하면
+      그 중량을 제대로 만나지 못하고, 데드는 디로드에 건너뛰므로 한 번도 안 들고 다음 칸으로 넘어간다.
+      통째로 쉰 주도 같다. 주차 표시는 그대로 두고 사이클만 한 주 늦춘다 —
+      영구히 맞추려면 엑셀 '시작중량_설정'의 <b>사이클 기준일</b>을 한 주 뒤로 옮긴다.</p></details>`;
 }
 function anchorFix(cur){
   return `<details class="cal-fix"><summary>${cur?"주기가 밀렸다면 — 오늘을 다른 일차로":"오늘은 몇 일차인가"}</summary>

@@ -61,8 +61,11 @@ def home_days(wb):
     return sorted(found, key=lambda p: int(p[0]) if p[0].isdigit()
                   else WEEKDAYS.index(p[0]))
 
+# '메인:' 줄에 적히는 이름 → 증량을 추적하는 리프트.
+# 복귀판은 같은 리프트를 다른 기구로 친다 — 스미스 오버헤드 프레스가 밀리터리 자리다.
 LIFT_KEYS = {"스쿼트": "squat", "데드리프트": "dead",
-             "벤치프레스": "bench", "밀리터리 프레스": "press"}
+             "벤치프레스": "bench", "밀리터리 프레스": "press",
+             "스미스 오버헤드 프레스": "press"}
 
 # 볼륨 램프를 중량보다 몇 주 앞세울지.
 # 2026-08-10 결정 — 중량은 2주차 그대로 두고 볼륨만 3주차(138세트)부터 간다.
@@ -291,23 +294,30 @@ def find_header(ws, max_row=40):
 def parse_day(ws):
     """요일 시트 하나를 파싱해 dict로. 재택 · 복귀 양쪽 레이아웃 모두 처리."""
     day = {"t": "", "sub": "", "ex": [], "groups": None, "total": 0,
-           "main": None, "notes": [], "pre": []}
+           "main": None, "mains": [], "notes": [], "pre": []}
 
     # 제목 — 'A요일 — 가슴' 에서 뒷부분만
     title = s(ws.cell(1, 1).value)
     day["t"] = title.split("—", 1)[1].strip() if "—" in title else title
     day["t"] = re.sub(r"\s*\(.*?\)\s*$", "", day["t"])
 
-    # 메인 리프트 — 'A3: 메인: 벤치프레스'
-    for r in (2, 3, 4):
-        cell = s(ws.cell(r, 1).value)
-        if cell.startswith("메인:"):
-            day["main"] = LIFT_KEYS.get(cell.split(":", 1)[1].strip())
-            break
-
     hdr = find_header(ws)
     if hdr is None:
         return day
+
+    # 메인 리프트 — 'A4: 메인: 벤치프레스'. 종목표 위 어디에 있어도 되고,
+    # 복귀 토요일처럼 한 세션에 둘이면 줄을 두 번 쓴다 (웜업 램프 블록마다 하나).
+    # [키, 종목표에서 찾을 이름] — 이름이 같은 행이 그 리프트의 본세트 줄이다.
+    for r in range(2, hdr):
+        cell = s(ws.cell(r, 1).value)
+        if not cell.startswith("메인:"):
+            continue
+        label = cell.split(":", 1)[1].strip()
+        key = LIFT_KEYS.get(label)
+        if key:
+            day["mains"].append([key, label])
+    day["main"] = day["mains"][0][0] if day["mains"] else None
+    main_of = {label: key for key, label in day["mains"]}
 
     # 종목표 위쪽 블록 (웜업 · 관절 준비 등) — 세트 카운트 대상이 아닌 안내문
     pre_head, pre_bul = None, []
@@ -385,9 +395,14 @@ def parse_day(ws):
                 # 세트 수(E열)는 그대로다 — 드롭은 같은 세트의 연장이지 새 세트가 아니다
                 "drop": int(num(ws.cell(r, C("드롭(초)")).value)) if C("드롭(초)") else 0,
             }
-            # 메인 리프트 중량은 주차에 따라 바뀌므로 상단 카드로 넘긴다
-            if day["main"] and item["n"] == 1 and "본세트" in item["name"]:
+            # 메인 리프트 중량은 주차에 따라 바뀌므로 상단 카드로 넘긴다.
+            # 복귀 시트는 이름이 '메인:' 줄과 같고, 재택 시트는 1번 '… (본세트)' 행이다.
+            lift = main_of.get(item["name"])
+            if not lift and day["main"] and item["n"] == 1 and "본세트" in item["name"]:
+                lift = day["main"]
+            if lift:
                 item["w"] = "위 참조"
+                item["lift"] = lift
             (current[1] if current else flat).append(item)
         r += 1
 
@@ -747,6 +762,7 @@ def build(xlsx_path, out_path):
         "back":   {label: parse_day(wb[sheet]) for label, sheet in BACK_DAYS},
         "check":  parse_check(wb),
         "budget": parse_budget(wb),
+        "backBudget": parse_budget(wb, "복귀_세트검산"),
         "backCheck": parse_check(wb, "복귀_세트검산", adj_col=7),
         "plan":   parse_plan(wb),
         "ramp":   parse_ramp(wb),
@@ -1156,7 +1172,11 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 <script>
 const D = /*__DATA__*/ null;
 
-const R = v => Math.round(v/2.5)*2.5;
+/* 중량 격자. 헬스장 작은 원판이 2.5 · 1 · 0.5kg 각 2개 = 한쪽에 하나씩뿐이라
+   한쪽 끝수는 0 / 0.5 / 1 / 1.5 / 2.5 / 3 / 3.5 / 4 만 만들 수 있다.
+   그래서 총 중량이 5로 나눈 나머지 4(24 · 29 · 34 …)면 못 끼운다 — 1kg 올린다.
+   엑셀의 MROUND(...,1)+(MOD(...,5)=4)와 같은 값을 내야 한다. 어긋나면 폰과 시트가 갈린다 */
+const R = v => { const n=Math.round(v); return n%5===4 ? n+1 : n; };
 const fmt = v => (Math.round(v*1000)/1000).toString();
 const WEEKS = D.config.weeks;
 const LIFT = D.config.lifts;
@@ -1209,8 +1229,23 @@ const isDone = v => v===""||/^[oO○]$/.test(v);        /* 엑셀: OR(칸="",칸
 const missed = (k,c) => !isDone(logVal(c,k));
 /* w사이클 중량 = 시작 + 증량폭 × (그 앞에서 증량된 사이클 수). 미달한 사이클은 다음으로 안 올린다 */
 function stepsTo(k,w){ let n=0; for(let c=1;c<w;c++) if(!missed(k,c)) n++; return n; }
-const workWeight = (k,w) => startOf(k) + LIFT[k].inc*stepsTo(k,w);
-const xlWeight   = (k,w) => LIFT[k].start + LIFT[k].inc*stepsTo(k,w);
+/* 사다리를 한 칸씩 걸어 올라간다. 못 끼우는 값을 만나면 그 자리에서 1kg 올리고
+   다음 칸은 올린 값에서 이어지므로, 시작중량 + 폭 × 칸수로는 재현되지 않는다 —
+   엑셀 증량기록도 같은 방식이라 두 곳이 같은 숫자를 내려면 여기서도 걸어야 한다 */
+function ladder(k,w,base){
+  let v=base;
+  for(let c=1;c<w;c++) if(!missed(k,c)) v=R(v+LIFT[k].inc);
+  return v;
+}
+const workWeight = (k,w) => ladder(k,w,startOf(k));
+const xlWeight   = (k,w) => ladder(k,w,LIFT[k].start);
+/* 역산 — 이번 사이클 무게를 만드는 시작중량. 사다리가 칸마다 보정되므로 나눗셈이 안 된다.
+   못 끼우는 값을 입력하면 가장 가까운 끼울 수 있는 무게로 붙는다 */
+function startFor(k,w,n){
+  let best=Math.round(n), bd=Infinity;
+  for(let s=1;s<=Math.round(n)+1;s++){ const d=Math.abs(ladder(k,w,s)-n); if(d<bd){ bd=d; best=s; } }
+  return best;
+}
 /* w사이클 직전까지 같은 종목이 몇 사이클 연속 미달인지. 3이면 엑셀 규칙 "10% 디로드 후 재상승" —
    자동으로 내리지는 않는다. 중량을 탭해서 직접 고치면 웜업·원판이 따라온다 */
 function missRun(k,w){ let n=0; for(let c=w-1;c>=1&&missed(k,c);c--) n++; return n; }
@@ -1245,12 +1280,15 @@ function ramp(work){
 }
 const PLATES=[{kg:25,c:"#C93A42",h:42,w:11},{kg:20,c:"#2B62B0",h:42,w:11},
   {kg:15,c:"#DDA51B",h:40,w:9},{kg:10,c:"#2E9161",h:37,w:8},
-  {kg:5,c:"#E8E6E1",h:30,w:8},{kg:2.5,c:"#3D454F",h:24,w:7},
-  {kg:1.25,c:"#B9C0C8",h:19,w:6},{kg:1.125,c:"#8B95A1",h:16,w:6}];
+  {kg:5,c:"#E8E6E1",h:30,w:8},
+  {kg:2.5,c:"#3D454F",h:24,w:7,n:1},{kg:1,c:"#B9C0C8",h:19,w:6,n:1},
+  {kg:0.5,c:"#8B95A1",h:16,w:6,n:1}];
 function load(total){
   let side=(total-20)/2, out=[];
   if(side<0.001) return out;
-  for(const p of PLATES){ while(side>=p.kg-0.0005){ out.push(p); side=Math.round((side-p.kg)*1000)/1000; } }
+  /* 작은 원판(2.5 · 1 · 0.5)은 한쪽에 하나씩뿐이라 n으로 막는다 */
+  for(const p of PLATES){ let left=p.n||99;
+    while(side>=p.kg-0.0005 && left-->0){ out.push(p); side=Math.round((side-p.kg)*1000)/1000; } }
   return out;
 }
 function stackHTML(total){
@@ -1261,7 +1299,9 @@ function stackHTML(total){
     : `<em>빈 봉 20kg</em>`;
   return `<div class="stack"><div class="sleeve"></div>${body}</div>`;
 }
-function liftCard(key,week,sets){
+/* name — 시트의 '메인:' 줄에 적힌 이름. 같은 리프트를 다른 기구로 치는 날이 있어
+   (복귀 토요일의 스미스 오버헤드 프레스 = 밀리터리 자리) 카드에는 그 날의 이름을 쓴다 */
+function liftCard(key,week,sets,name){
   const L=LIFT[key]; if(!L) return "";
   const work=workWeight(key,week), rows=ramp(work);
   /* 본세트 수는 종목표 1번 행이 정한다 — 메인 리프트는 어느 주차에도 빠지지 않는다 */
@@ -1271,7 +1311,7 @@ function liftCard(key,week,sets){
     <div class="r-x num">${r.reps}회</div><div class="r-x num">${r.sets}세트</div>`).join("");
   return `<section class="lift" style="--accent:${L.accent}">
     <div class="lift-top">
-      <div class="lift-name"><div class="eyebrow">MAIN LIFT</div><h3>${L.ko}</h3>
+      <div class="lift-name"><div class="eyebrow">MAIN LIFT</div><h3>${esc(name||L.ko)}</h3>
         <p class="num">5년 전 ${fmt(L.prev)}kg · 본세트 5회 × ${ws}세트${ws!==L.sets?` <span style="color:var(--dim)">(설계 ${L.sets})</span>`:""}</p></div>
       <div class="bigw ${OV.lifts[key]?'edited':''}" data-lift="${key}"><b class="num">${fmt(work)}</b><i>kg</i>${
         OV.lifts[key]?`<span class="ovnote">수정됨 · 엑셀 기준 ${fmt(xlWeight(key,week))}kg</span>`:""}</div>
@@ -1361,8 +1401,12 @@ function dayHTML(d,week){
   const holdBox = held.length ? `<details class="holdbox"><summary>보류 ${held.length}종목
     <i>· 세트 합계에서 빠짐</i></summary>${held.map(one).join("")}</details>` : "";
   const bar = (on && done!==d.total) ? rampBar(all,S,d.total,done,week) : "";
-  /* 메인 리프트 카드의 본세트 수는 종목표 1번 행과 같은 값을 쓴다 */
-  const mainRow = all.find(e=>e.n===1 && e.name.indexOf("본세트")>=0);
+  /* 메인 리프트 카드의 본세트 수는 종목표에서 그 리프트가 붙은 행과 같은 값을 쓴다.
+     복귀 토요일처럼 메인이 둘이면 카드도 둘이다 — 웜업 램프가 종목마다 따로 필요하다 */
+  const cards = (d.mains||[]).map(m=>{
+    const row = all.find(e=>e.lift===m[0]);
+    return liftCard(m[0],week,row?S(row):null,m[1]);
+  }).join("");
   /* 버튼에 적는 세트 수는 '오늘 할 세트'가 아니라 '타이머가 돌릴 세트'다.
      새 종목에 G·H열을 안 채우면 여기서 수가 어긋나 바로 눈에 띈다. */
   const tSets = timed.reduce((a,e)=>a+S(e),0);
@@ -1370,7 +1414,7 @@ function dayHTML(d,week){
     ? `<button class="day-go" data-tm="">&#9654; 세션 타이머 시작 · ${tSets}세트${
         tSets!==done?` <i>(시간 없는 ${done-tSets}세트 제외)</i>`:""}</button>` : "";
   return `<h2 class="daytitle">${esc(d.t)}</h2><p class="daysub">${esc(d.sub)}</p>${bar}${go}
-    ${d.main?liftCard(d.main,week,mainRow?S(mainRow):null):""}${notesHTML(d.pre)}${body}
+    ${cards}${notesHTML(d.pre)}${body}
     <div class="total"><span>세트 합계</span><b class="num">${done!==d.total?`${done} <i style="font-style:normal;font-weight:600;color:var(--mute);font-size:13px">/ 설계 ${d.total}</i>`:d.total}</b></div>${holdBox}${notesHTML(d.notes)}`;
 }
 /* ── 달력 ─────────────────────────────────────────────────────────
@@ -1489,13 +1533,13 @@ function checkHTML(){
   <p class="daysub">${back
     ? "세트는 근육군 단위로 센다. 복귀판은 주 4회 · 주 단위라 이 숫자가 곧 주간 세트다. 실질 = 직접 + 간접 추정."
     : `세트는 근육군 단위로 센다. 실질 = 직접 + 간접 추정 — 이건 사이클당(${CYCLE}일) 세트다. 판정은 주당 환산(×7/${CYCLE})으로 내린다.`}</p>
-  ${(!back && D.budget)?(b=>`<div class="budget ${b.left<0?"bad":"ok"}">
+  ${(b=>b?`<div class="budget ${b.left<0?"bad":"ok"}">
     <b>${b.state}</b>
     <span>상한 <i>${b.cap}</i></span><span>현재 <i>${b.cur}</i></span>
     <span>잔여 <i>${b.left}</i></span><span>실제 주당 <i>${b.weekly}</i></span>
     <span>${b.cycle}일 주기</span>
     ${b.left<0?`<div class="warn">다른 종목에서 ${Math.abs(b.left)}세트를 빼기 전에는 추가 금지</div>`:""}
-  </div>`)(D.budget):""}
+  </div>`:"")(back?D.backBudget:D.budget)}
   <table class="tbl"><thead><tr><th>근육군</th><th>직접</th><th>간접</th><th>실질</th>${wk?"<th>주당</th>":""}<th>판정</th>${adj?"<th>보정</th>":""}</tr></thead><tbody>
   ${rows.map(([m,dr,i,t,tag,v,,g,w])=>`<tr><td>${esc(m)}</td><td class="num">${dr}</td>
     <td class="num" style="color:var(--mute)">${i}</td><td class="num" style="font-weight:800">${t}</td>
@@ -1552,8 +1596,9 @@ function backPlanHTML(){
   </tbody></table>${notesHTML(p.notes)}`;
 }
 function progressHTML(week){
-  const keys=Object.keys(LIFT), c=week, cur=cycleOf(ymd(new Date()));
-  const date=cycleDate(c), fat=logVal(c,"fat");
+  const keys=Object.keys(LIFT), c=week, fat=logVal(c,"fat");
+  /* 날짜·'지금'은 재택 일차 회전에서 나온다. 복귀는 손으로 2주에 한 칸이라 붙이지 않는다 */
+  const bk=mode==="back", cur=bk?null:cycleOf(ymd(new Date())), date=bk?null:cycleDate(c);
   const card=`<section class="logcard">
     <div class="logcard-h"><b>${c}사이클 기록</b><span>${date?`${+date.slice(5,7)}/${+date.slice(8)} 시작`:""}${
       cur&&cur.cycle===c?" · 지금":""}</span></div>
@@ -1582,7 +1627,9 @@ function progressHTML(week){
   const mine=phoneOnly(), lines=logLines();
   return `<h2 class="daytitle">증량 기록</h2>
   <p class="daysub">엑셀 증량기록과 같은 규칙 — 달성·공란은 다음 사이클에 오르고, 미달을 적으면 그 중량을 한 번 더 든다.
-    위 −/+ 로 사이클을 옮긴다. 기억으로 소급해 채우지 말 것.</p>
+    위 −/+ 로 사이클을 옮긴다. 기억으로 소급해 채우지 말 것.${bk
+      ? " 복귀 중에는 <b>2주에 한 칸</b> — 올리기 전에 이 사이클 결과를 먼저 적는다."
+      : ""}</p>
   ${card}
   <table class="tbl"><thead><tr><th>사이클</th>${keys.map(k=>`<th>${esc(LIFT[k].ko)}</th>`).join("")}<th>피로</th></tr></thead>
   <tbody>${rows.join("")}</tbody></table>
@@ -1591,8 +1638,8 @@ function progressHTML(week){
     <ul>${mine.map(t=>`<li>${esc(t)}</li>`).join("")}</ul>
     <button id="log-copy" class="plain">전체 기록 텍스트로 복사</button>
     <details class="log-text"><summary>복사가 안 되면 여기서 길게 눌러 복사</summary><pre>${esc(lines.join("\n"))}</pre></details></div>`:""}
-  <div class="notes"><h5>사이클당 증량폭</h5><ul>${keys.map(k=>
-    `<li>${esc(LIFT[k].ko)} ${fmt(LIFT[k].inc)}kg</li>`).join("")}</ul></div>
+  <div class="notes"><h5>${bk?"사이클당 증량폭 (복귀 = 2주)":"사이클당 증량폭"}</h5><ul>${keys.map(k=>
+    `<li>${esc(LIFT[k].ko)} ${fmt(LIFT[k].inc)}kg</li>`).join("")}</ul><p class="footnote">한쪽 원판이 2.5 · 1 · 0.5kg 하나씩이라 총 중량이 5로 나눈 나머지 4면 못 끼운다 — 그 칸은 자동으로 1kg 올라가므로 폭이 칸마다 조금씩 다르다.</p></div>
   ${notesHTML(D.progressNotes)}`;
 }
 /* 사이클별 한 줄 — 엑셀 증량기록에 옮겨 적기 위한 텍스트. 기록이 있는 사이클만 */
@@ -1647,7 +1694,7 @@ function editLift(el,k,after){
     else if(!isNaN(n)&&n>0){
       // 이번 사이클 무게를 입력받아 시작중량을 역산 — 이후 사이클·원판·웜업이 전부 따라온다.
       // 미달로 유지된 사이클은 기록이 이미 빼고 세므로 여기서도 같은 계단 수를 쓴다
-      const start=n-LIFT[k].inc*stepsTo(k,week);
+      const start=startFor(k,week,n);
       if(Math.abs(start-LIFT[k].start)<0.001) delete OV.lifts[k];
       else OV.lifts[k]={start:start, base:LIFT[k].start};
     }
@@ -1731,8 +1778,7 @@ function tmSteps(d,week,from){
   return out;
 }
 function tmW(e){
-  const d=(mode==="home"?D.home:D.back)[tab];
-  if(e.w==="위 참조"&&d&&d.main) return fmt(workWeight(d.main,week))+"kg";
+  if(e.w==="위 참조"&&e.lift) return fmt(workWeight(e.lift,week))+"kg";
   const ov=OV.ex[mode+"|"+tab+"|"+e.name], w=String(ov?ov.w:e.w);
   return /^[\d.~\s]+$/.test(w) ? w.replace(/\s+$/,"")+"kg" : w;
 }
@@ -2012,8 +2058,7 @@ document.addEventListener("visibilitychange",()=>{
    '위 참조'(메인 리프트 본세트)는 종목이 아니라 시작중량을 고쳐야
    웜업 램프·원판까지 따라오므로 lift 쪽으로 보낸다. */
 function tmKey(e){
-  const d=(mode==="home"?D.home:D.back)[tab];
-  return (e.w==="위 참조"&&d&&d.main) ? "lift|"+d.main : "ex|"+mode+"|"+tab+"|"+e.name;
+  return (e.w==="위 참조"&&e.lift) ? "lift|"+e.lift : "ex|"+mode+"|"+tab+"|"+e.name;
 }
 function tmMeta(e){
   const key=tmKey(e), p=key.split("|");
@@ -2169,18 +2214,21 @@ function bindEdits(){
 let mode="home", week=D.config.week||1, tab=D.homeOrder[0];
 const tabsFor = m => (m==="home"
   ? D.homeOrder.map(d=>[d,d+"일"]).concat([["cal","달력"],["plan","주기"],["prog","증량"],["check","검산"]])
-  : D.backOrder.map(d=>[d,d]).concat([["bplan","주간"],["check","검산"]]));
+  : D.backOrder.map(d=>[d,d]).concat([["bplan","주간"],["prog","증량"],["check","검산"]]));
 
 function render(){
   const nav=document.getElementById("nav");
   nav.innerHTML=tabsFor(mode).map(([k,l])=>`<button data-k="${k}" aria-pressed="${k===tab}">${l}</button>`).join("");
   nav.querySelectorAll("button").forEach(b=>b.onclick=()=>{tab=b.dataset.k;render();window.scrollTo({top:0});});
-  document.getElementById("weekbar").style.display = mode==="home"?"flex":"none";
-  document.getElementById("wk-track").style.display = mode==="home"?"flex":"none";
+  /* 사이클 바는 양쪽 모드에 다 띄운다 — 중량 사다리는 재택 · 복귀가 같은 칸을 쓴다.
+     다른 것은 올리는 속도뿐이다(재택 사이클마다 · 복귀 2주에 한 칸). */
+  document.getElementById("weekbar").style.display = "flex";
+  document.getElementById("wk-track").style.display = "flex";
   document.getElementById("wk-num").textContent=week;
-  /* 큰 숫자는 중량 주차다. 볼륨이 그보다 앞서 있으면 여기서 같이 밝힌다 */
-  document.getElementById("wk-of").textContent=`WEEK / ${WEEKS}`
-    + (rampOn()&&vWeek(week)!==week ? ` · 볼륨 ${vWeek(week)}주` : "");
+  /* 큰 숫자는 중량 사이클이다. 볼륨이 그보다 앞서 있으면 여기서 같이 밝힌다 */
+  document.getElementById("wk-of").textContent=`CYCLE / ${WEEKS}`
+    + (mode==="back" ? " · 2주에 한 칸"
+       : rampOn()&&vWeek(week)!==week ? ` · 볼륨 ${vWeek(week)}주` : "");
   document.getElementById("wk-track").innerHTML=
     Array.from({length:WEEKS},(_,i)=>`<span class="${i<week?'on':''}"></span>`).join("");
   document.getElementById("wk-down").disabled=week<=1;
@@ -2194,7 +2242,7 @@ function render(){
   else if(tab==="bplan") html=backPlanHTML();
   else html = set[tab] ? dayHTML(set[tab],week) : planHTML();
   document.getElementById("app").innerHTML = html + ovHTML() +
-    `<p class="footnote">원본: ${esc(D.source)} · 중량은 시트와 동일한 계산식(MROUND 2.5kg, 웜업 40/60/75/90%)으로 산출됩니다. 중량 숫자를 탭하면 이 폰에서만 고칠 수 있습니다.</p>`;
+    `<p class="footnote">원본: ${esc(D.source)} · 중량은 시트와 동일한 계산식(1kg 격자 · 못 끼우는 값은 +1kg, 웜업 40/60/75/90%)으로 산출됩니다. 중량 숫자를 탭하면 이 폰에서만 고칠 수 있습니다.</p>`;
   bindEdits();
   try{ const c=cycleOf(ymd(new Date()));
     localStorage.setItem("wk-prog", JSON.stringify(

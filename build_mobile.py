@@ -642,6 +642,26 @@ def parse_config(wb):
             "week": int(num(st.cell(4, 3).value, 1))}
 
 
+def parse_back_anchor(wb):
+    """복귀 운용 기준 — 시작일 · 시작 사이클 · 사이클 전진(주).
+
+    라벨로 찾는다. 시작중량_설정은 LIFT_META가 행 번호를 박아 쓰는 시트라
+    블록을 아래쪽에 두고 행 번호에 의존하지 않는다. 칸이 없으면 None —
+    그때는 앱이 복귀 달력 대신 '기준일을 채우라'는 안내를 띄운다."""
+    ws = wb["시작중량_설정"]
+    want = {"복귀 시작일": "date", "복귀 시작 사이클": "cycle", "사이클 전진(주)": "step"}
+    got = {}
+    for r in range(1, ws.max_row + 1):
+        key = want.get(s(ws.cell(r, 1).value))
+        if not key:
+            continue
+        v = ws.cell(r, 3).value
+        got[key] = v.strftime("%Y-%m-%d") if hasattr(v, "strftime") else int(num(v))
+    if not got.get("date") or not got.get("cycle"):
+        return None
+    return {"date": got["date"], "cycle": got["cycle"], "step": got.get("step") or 2}
+
+
 def parse_progress_notes(wb):
     return parse_notes_block(wb["증량기록"], 23, "운용 규칙")
 
@@ -770,6 +790,7 @@ def build(xlsx_path, out_path):
         "progressNotes": parse_progress_notes(wb),
         "log":    parse_log(wb),
         "anchor": parse_anchor(wb),
+        "backAnchor": parse_back_anchor(wb),
         "source": Path(xlsx_path).name,
     }
     # 램프가 실제로 걸려 있는지는 요일 시트 K열이 정한다.
@@ -1431,6 +1452,35 @@ let ANCHOR=D.anchor||null;
 try{ const o=JSON.parse(localStorage.getItem(AKEY)||"null"); if(o&&o.date) ANCHOR=o; }catch(e){}
 const saveAnchor = () => { try{ localStorage.setItem(AKEY,JSON.stringify(ANCHOR)); }catch(e){} };
 
+/* ── 복귀 달력 ─────────────────────────────────────────────────────
+   복귀는 요일이 유동이라 '몇 일차'가 없다. 대신 주차가 단위다 —
+   월요일에 주차가 넘어가고, 사이클은 그 주차가 정한다(2주에 한 칸).
+   사용자가 손으로 셀 일이 없게 하는 것이 이 블록의 전부다. */
+const BA = D.backAnchor || null;
+const BSKEY="wk-bshift", BCKEY="wk-bsess";
+let BSHIFT=0;  try{ BSHIFT=Number(localStorage.getItem(BSKEY)||0)||0; }catch(e){}
+let BSESS={};  try{ BSESS=JSON.parse(localStorage.getItem(BCKEY)||"{}")||{}; }catch(e){}
+const bSave = () => { try{ localStorage.setItem(BSKEY,String(BSHIFT));
+  localStorage.setItem(BCKEY,JSON.stringify(BSESS)); }catch(e){} };
+const dayAdd = (t,n) => { const d=ymdParse(t); d.setDate(d.getDate()+n); return ymd(d); };
+/* 기준일(+보정) 이후면 {주차, 사이클, 그 주 시작일}. 이전이면 null */
+function backWeekOf(t){
+  if(!BA) return null;
+  const n=dayGap(t,BA.date)-BSHIFT*7;
+  if(n<0) return null;
+  const wk=Math.floor(n/7)+1;
+  return {wk, cycle: Math.min(WEEKS, BA.cycle+Math.floor((wk-1)/BA.step)),
+          from: dayAdd(BA.date, BSHIFT*7+(wk-1)*7)};
+}
+/* 다음 증량이 시작되는 주 */
+function backNext(cur){
+  const wk=(Math.floor((cur.wk-1)/BA.step)+1)*BA.step+1;
+  return {wk, from: dayAdd(BA.date, BSHIFT*7+(wk-1)*7),
+          cycle: Math.min(WEEKS, BA.cycle+Math.floor((wk-1)/BA.step))};
+}
+/* 복귀 화면의 사이클은 날짜가 정한다 — 주차 바는 둘러보기용이다 */
+function syncBackWeek(){ const c=backWeekOf(ymd(new Date())); if(c) week=c.cycle; }
+
 /* 날짜 → 그 날의 일차와 사이클 */
 function cycleOf(t){
   if(!ANCHOR) return null;
@@ -1502,6 +1552,89 @@ function calHTML(){
       acc?"":"border:1px dashed var(--line)"}"></i>${d} ${esc(shortLabel(d))}${
       h&&h.main&&LIFT[h.main]?` <b>${esc(LIFT[h.main].ko)}</b>`:""}</span>`;
   }).join("")}</div>`;
+}
+function backCalHTML(){
+  if(!BA) return `<h2 class="daytitle">달력</h2>
+    <p class="daysub">'시작중량_설정' 시트 아래 <b>복귀 운용</b> 칸(복귀 시작일 · 시작 사이클 · 사이클 전진)을
+      채우면 여기서 주차 · 사이클 · 중량이 자동으로 나온다.</p>`;
+  const now=new Date(), tKey=ymd(now), cur=backWeekOf(tKey);
+  const keys=Object.keys(LIFT), SLOTS=D.backOrder;
+  const ym=calYM||{y:now.getFullYear(),m:now.getMonth()};
+  const first=new Date(ym.y,ym.m,1), last=new Date(ym.y,ym.m+1,0);
+  const ACC={6:"var(--sq)",0:"var(--dl)"};      /* 토 = 하체(스쿼트) · 일 = 등(데드) */
+  const FIX={6:"토",0:"일"};
+
+  /* 오늘 카드 — 주차 · 사이클 · 네 리프트 중량 · 다음 증량까지 */
+  let head;
+  if(cur){
+    const nx=backNext(cur), left=dayGap(nx.from,tKey);
+    head=`<div class="cal-now"><b>복귀 ${cur.wk}주차 · ${cur.cycle}사이클</b>
+      <p>${keys.map(k=>`${esc(LIFT[k].ko)} <b class="num">${fmt(workWeight(k,cur.cycle))}</b>kg`).join(" · ")}</p>
+      <p>${nx.cycle>cur.cycle
+        ? `다음 증량 <b>${left===0?"오늘":left+"일 뒤"}</b> — ${+nx.from.slice(5,7)}/${+nx.from.slice(8)}(월)부터 ${nx.cycle}사이클 ·
+           ${keys.map(k=>`${esc(LIFT[k].ko)} ${fmt(workWeight(k,nx.cycle))}`).join(" · ")}kg`
+        : `${WEEKS}사이클이 마지막이다 — 여기서부터는 더블 프로그레션으로 넘긴다`}</p>
+      ${backFix(cur)}</div>`;
+  } else {
+    head=`<div class="cal-now"><b>복귀 시작 전</b>
+      <p>기준일(${BA.date})보다 이전이다. 시작일을 고치려면 엑셀 '시작중량_설정'의 복귀 운용 칸을 본다.</p>
+      ${backFix(null)}</div>`;
+  }
+
+  const cells=[];
+  for(let i=0;i<first.getDay();i++) cells.push(`<div class="cal-cell pad"></div>`);
+  for(let dn=1;dn<=last.getDate();dn++){
+    const d=new Date(ym.y,ym.m,dn), key=ymd(d), dow=d.getDay(), w=backWeekOf(key);
+    const fix=FIX[dow], acc=ACC[dow]||"";
+    cells.push(`<div class="cal-cell${w?"":" blank"}${key===tKey?" today":""}${fix?"":" rest"}${dow===0?" sun":""}"
+      style="${acc?`--acc:${acc}`:""}">
+      <b>${dn}</b>${w?`${fix?`<i style="color:${acc}">${esc(D.back[fix]?D.back[fix].t.split(" ")[0]:fix)}</i>`
+        :`<i class="num" style="color:var(--mute)">평일</i>`}
+      <span>${fix?"고정":"A · B 중"}</span>${dow===1?`<em>${w.wk}주차${
+        (w.wk-1)%BA.step===0?` · ${w.cycle}사이클`:""}</em>`:""}`:""}</div>`);
+  }
+
+  /* 주별 세션 체크 — 4회 중 몇 했나. 평일 B를 2주 연속 뺐는지가 여기서 보인다 */
+  const wks=[];
+  if(cur) for(let i=Math.max(1,cur.wk-5);i<=cur.wk;i++){
+    const from=dayAdd(BA.date,BSHIFT*7+(i-1)*7), cyc=Math.min(WEEKS,BA.cycle+Math.floor((i-1)/BA.step));
+    const got=BSESS[from]||{}, n=SLOTS.filter(s=>got[s]).length;
+    wks.push(`<div class="log-row"${i===cur.wk?' style="--accent:var(--ink)"':""}>
+      <div class="log-l"><b>${i}주차${i===cur.wk?" · 이번 주":""}</b>
+        <span class="num">${+from.slice(5,7)}/${+from.slice(8)} ~ ${(x=>`${+x.slice(5,7)}/${+x.slice(8)}`)(dayAdd(from,6))}
+          · ${cyc}사이클 · ${n}/4회${!got["평B"]&&n>0?" · 평일 B 빠짐":""}</span></div>
+      <div class="seg">${SLOTS.map(s=>`<button class="${got[s]?"on ok":""}" data-bsess="${from}" data-bslot="${s}">${s}</button>`).join("")}</div>
+    </div>`);
+  }
+  const miss=wks.length>1 && cur && [cur.wk,cur.wk-1].every(i=>{
+    const f=dayAdd(BA.date,BSHIFT*7+(i-1)*7), g=BSESS[f]||{};
+    return SLOTS.some(s=>g[s]) && !g["평B"]; });
+
+  return `<h2 class="daytitle">달력</h2>
+  <p class="daysub">복귀는 요일이 유동이라 일차가 없다 — <b>주차</b>가 단위다. 주차는 월요일에 넘어가고
+    사이클은 ${BA.step}주에 한 칸 올라간다. 중량은 오늘 날짜로 자동 계산되므로 셀 필요가 없다.</p>
+  ${head}
+  <div class="cal-bar"><button id="cal-prev">‹</button>
+    <h3>${ym.y}년 ${ym.m+1}월</h3>
+    <button id="cal-today">오늘</button><button id="cal-next">›</button></div>
+  <div class="cal-grid">${[...DOW].map((w,i)=>`<div class="cal-dow${i===0?" sun":""}">${w}</div>`).join("")}
+    ${cells.join("")}</div>
+  <div class="cal-key"><span><i style="background:var(--sq)"></i>토 고정 — 하체</span>
+    <span><i style="background:var(--dl)"></i>일 고정 — 등</span>
+    <span><i style="border:1px dashed var(--line)"></i>평일 — 8시간인 날 2회</span></div>
+  ${wks.length?`<section class="logcard"><div class="logcard-h"><b>주별 세션</b>
+    <span>· 한 주에 4회. 누르면 이 폰에 남는다</span></div>${wks.join("")}
+    ${miss?`<div class="warn">평일 B가 2주 연속 빠졌다 — 후면 · 측면 삼각이 통째로 비는 주가 둘이다.
+      이번 주는 평일 A 뒤에 축약분(레터럴 3 + 케이블 리버스 플라이 3)을 얹는다.</div>`:""}</section>`:""}`;
+}
+/* 복귀 주차 보정 — 디로드나 통째로 쉰 주를 뒤로 미룬다. 이 폰에만 남는다 */
+function backFix(cur){
+  return `<details class="cal-fix"><summary>${cur?`주차가 안 맞으면 — 지금 ${cur.wk}주차`:"기준일 보정"}</summary>
+    <div class="cal-days"><button data-bshift="1">한 주 미루기</button>
+      <button data-bshift="-1">한 주 당기기</button>
+      ${BSHIFT?`<button data-bshift="0">엑셀 기준으로 (${BSHIFT>0?"+":""}${BSHIFT}주 보정 중)</button>`:""}</div>
+    <p class="footnote">디로드 주나 통째로 쉰 주가 있으면 미룬다 — 그만큼 사이클이 늦게 올라간다.
+      영구히 맞추려면 엑셀 '시작중량_설정'의 복귀 시작일을 뒤로 옮긴다.</p></details>`;
 }
 function anchorFix(cur){
   return `<details class="cal-fix"><summary>${cur?"주기가 밀렸다면 — 오늘을 다른 일차로":"오늘은 몇 일차인가"}</summary>
@@ -2174,6 +2307,19 @@ function bindEdits(){
   if(cp) cp.onclick=()=>shift(-1);
   if(cn) cn.onclick=()=>shift(1);
   if(ct) ct.onclick=()=>{ calYM=null; render(); };
+  /* 복귀 주차 보정 — 0이면 엑셀 기준으로 되돌린다 */
+  document.querySelectorAll("[data-bshift]").forEach(el=>{ el.onclick=()=>{
+    const v=Number(el.dataset.bshift);
+    BSHIFT = v===0 ? 0 : BSHIFT+v;
+    if(BSHIFT<0 && !backWeekOf(ymd(new Date()))) BSHIFT-=v;   /* 기준일 앞으로는 안 간다 */
+    bSave(); syncBackWeek(); render(); }; });
+  /* 주별 세션 체크 — 다시 누르면 해제 */
+  document.querySelectorAll("[data-bsess]").forEach(el=>{ el.onclick=()=>{
+    const f=el.dataset.bsess, s=el.dataset.bslot;
+    const w=BSESS[f]||(BSESS[f]={});
+    if(w[s]) delete w[s]; else w[s]=1;
+    if(!Object.keys(w).length) delete BSESS[f];
+    bSave(); render(); }; });
   document.querySelectorAll("[data-setday]").forEach(el=>{ el.onclick=()=>{
     const v=el.dataset.setday;
     if(v==="__xl"){ ANCHOR=D.anchor; try{ localStorage.removeItem(AKEY); }catch(e){} }
@@ -2214,7 +2360,7 @@ function bindEdits(){
 let mode="home", week=D.config.week||1, tab=D.homeOrder[0];
 const tabsFor = m => (m==="home"
   ? D.homeOrder.map(d=>[d,d+"일"]).concat([["cal","달력"],["plan","주기"],["prog","증량"],["check","검산"]])
-  : D.backOrder.map(d=>[d,d]).concat([["bplan","주간"],["prog","증량"],["check","검산"]]));
+  : D.backOrder.map(d=>[d,d]).concat([["bcal","달력"],["bplan","주간"],["prog","증량"],["check","검산"]]));
 
 function render(){
   const nav=document.getElementById("nav");
@@ -2239,6 +2385,7 @@ function render(){
   else if(tab==="check") html=checkHTML();
   else if(tab==="plan") html=planHTML();
   else if(tab==="prog") html=progressHTML(week);
+  else if(tab==="bcal") html=backCalHTML();
   else if(tab==="bplan") html=backPlanHTML();
   else html = set[tab] ? dayHTML(set[tab],week) : planHTML();
   document.getElementById("app").innerHTML = html + ovHTML() +
@@ -2275,7 +2422,7 @@ document.getElementById("wk-down").onclick=()=>{if(week>1){week--;render();}};
 document.getElementById("m-home").onclick=()=>{mode="home";tab=D.homeOrder[0];
   document.getElementById("m-home").setAttribute("aria-pressed","true");
   document.getElementById("m-back").setAttribute("aria-pressed","false");render();};
-document.getElementById("m-back").onclick=()=>{mode="back";tab=D.backOrder[0];
+document.getElementById("m-back").onclick=()=>{mode="back";tab=D.backOrder[0];syncBackWeek();
   document.getElementById("m-back").setAttribute("aria-pressed","true");
   document.getElementById("m-home").setAttribute("aria-pressed","false");render();};
 try{
@@ -2290,6 +2437,9 @@ try{
   } else if(st&&st.mode){ mode=st.mode; week=Math.min(st.week||1,WEEKS); tab=st.tab||tab;
     document.getElementById("m-home").setAttribute("aria-pressed",mode==="home");
     document.getElementById("m-back").setAttribute("aria-pressed",mode==="back"); }
+  /* 복귀로 켜지는 경우 — 사이클은 지난 번에 보던 값이 아니라 오늘 날짜가 정한다.
+     '내가 어디쯤이었지'를 사람이 기억하지 않게 하는 것이 복귀 달력의 목적이다 */
+  if(mode==="back") syncBackWeek();
 }catch(e){}
 render();
 </script>

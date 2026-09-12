@@ -403,6 +403,11 @@ def parse_day(ws):
             if lift:
                 item["w"] = "위 참조"
                 item["lift"] = lift
+            # 백오프 = 직전 사이클의 톱세트 중량. 주차를 옮기면 같이 따라와야 하므로
+            # 엑셀 수식의 캐시값을 쓰지 않고 리프트에 'lo'(몇 사이클 전)로 매단다
+            elif "백오프" in item["name"] and day["main"]:
+                item["lift"] = day["main"]
+                item["lo"] = 1
             (current[1] if current else flat).append(item)
         r += 1
 
@@ -1016,6 +1021,9 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .budget.bad{border-color:rgba(201,58,66,.55);background:rgba(201,58,66,.07)}
 .budget.bad b{color:var(--sq)}
 .budget .warn{flex-basis:100%;font-size:12px;color:var(--sq);font-weight:700}
+/* 달력·주별 세션에서 쓰는 경고와 참고 — 글자만 굵게, 배경은 부모가 쥔다 */
+.warn{margin-top:8px;font-size:12px;line-height:1.5;color:var(--sq);font-weight:700}
+.cal-note{margin-top:8px;font-size:12px;line-height:1.5;color:var(--mute)}
 .footnote{font-size:11.5px;color:var(--dim);margin-top:18px;line-height:1.6}
 .rest{opacity:.42}
 [data-lift]{cursor:pointer}
@@ -1364,9 +1372,12 @@ function logCtl(k,c){
 }
 const esc = t => String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;");
 const escAttr = t => esc(t).replace(/"/g,"&quot;");
+/* 백오프 행의 중량 — 한 사이클 전 톱세트. 엑셀 캐시값이 아니라 지금 주차에서 낸다 */
+const exW = e => (e.lo&&e.lift&&LIFT[e.lift])
+  ? fmt(workWeight(e.lift,Math.max(1,week-e.lo)))+"kg" : e.w;
 function exHTML(e,prefix,sets,timed){
   const key=prefix+"|"+e.name, ov=OV.ex[key];
-  const w=ov?ov.w:e.w, canEdit=e.w!=="위 참조";
+  const w=ov?ov.w:exW(e), canEdit=e.w!=="위 참조"&&!e.lo;
   const n=(sets==null?e.s:sets);
   /* 이번 주에 안 하는 종목 — 목록에서 빼지 않고 흐리게 남긴다.
      사라진 게 아니라 몇 주차에 돌아오는지가 보여야 한다. 메모·대체 종목은 그때 읽으면 된다.
@@ -1472,14 +1483,23 @@ function backWeekOf(t){
   return {wk, cycle: Math.min(WEEKS, BA.cycle+Math.floor((wk-1)/BA.step)),
           from: dayAdd(BA.date, BSHIFT*7+(wk-1)*7)};
 }
-/* 다음 증량이 시작되는 주 */
-function backNext(cur){
-  const wk=(Math.floor((cur.wk-1)/BA.step)+1)*BA.step+1;
-  return {wk, from: dayAdd(BA.date, BSHIFT*7+(wk-1)*7),
-          cycle: Math.min(WEEKS, BA.cycle+Math.floor((wk-1)/BA.step))};
+/* 지금 쓰는 사이클보다 큰 사이클이 처음 시작되는 주. 손으로 먼저 올려 둔 경우에도
+   '다음'이 과거를 가리키지 않는다. 마지막 사이클이면 null */
+function backNextAfter(eff){
+  for(let w=1; w<=WEEKS*BA.step+BA.step; w++){
+    const c=Math.min(WEEKS, BA.cycle+Math.floor((w-1)/BA.step));
+    if(c>eff) return {wk:w, cycle:c, from: dayAdd(BA.date, BSHIFT*7+(w-1)*7)};
+  }
+  return null;
 }
-/* 복귀 화면의 사이클은 날짜가 정한다 — 주차 바는 둘러보기용이다 */
-function syncBackWeek(){ const c=backWeekOf(ymd(new Date())); if(c) week=c.cycle; }
+/* 복귀 화면의 사이클 — 달력이 낸 값과 엑셀 '현재 사이클'(C4) 중 큰 쪽을 쓴다.
+   손으로 먼저 올렸으면 그 뜻을 따르고, 달력이 앞서면 올릴 때가 됐다는 뜻이다.
+   중량 표가 C4에 매달려 있으므로(백오프 · 일차 시트 D열) 둘을 벌려 두면 엑셀과 폰이 갈린다 */
+const xlCycle = () => Math.min(WEEKS, Math.max(1, D.config.week||1));
+function syncBackWeek(){
+  const c=backWeekOf(ymd(new Date()));
+  if(c) week=Math.max(c.cycle, xlCycle());
+}
 
 /* 날짜 → 그 날의 일차와 사이클 */
 function cycleOf(t){
@@ -1565,15 +1585,25 @@ function backCalHTML(){
   const FIX={6:"토",0:"일"};
 
   /* 오늘 카드 — 주차 · 사이클 · 네 리프트 중량 · 다음 증량까지 */
+  /* 쓰는 사이클 = 달력이 낸 값과 엑셀 C4 중 큰 쪽. 중량 표가 C4에 매달려 있어서다 */
+  const eff = cur ? Math.max(cur.cycle, xlCycle()) : xlCycle();
   let head;
   if(cur){
-    const nx=backNext(cur), left=dayGap(nx.from,tKey);
-    head=`<div class="cal-now"><b>복귀 ${cur.wk}주차 · ${cur.cycle}사이클</b>
-      <p>${keys.map(k=>`${esc(LIFT[k].ko)} <b class="num">${fmt(workWeight(k,cur.cycle))}</b>kg`).join(" · ")}</p>
-      <p>${nx.cycle>cur.cycle
-        ? `다음 증량 <b>${left===0?"오늘":left+"일 뒤"}</b> — ${+nx.from.slice(5,7)}/${+nx.from.slice(8)}(월)부터 ${nx.cycle}사이클 ·
+    const nx=backNextAfter(eff), left=nx?dayGap(nx.from,tKey):0;
+    head=`<div class="cal-now"><b>복귀 ${cur.wk}주차 · ${eff}사이클</b>
+      <p>${keys.map(k=>`${esc(LIFT[k].ko)} <b class="num">${fmt(workWeight(k,eff))}</b>kg`).join(" · ")}</p>
+      <p>${nx
+        ? `다음 증량 <b>${left<=0?"오늘":left+"일 뒤"}</b> — ${+nx.from.slice(5,7)}/${+nx.from.slice(8)}(월)부터 ${nx.cycle}사이클 ·
            ${keys.map(k=>`${esc(LIFT[k].ko)} ${fmt(workWeight(k,nx.cycle))}`).join(" · ")}kg`
-        : `${WEEKS}사이클이 마지막이다 — 여기서부터는 더블 프로그레션으로 넘긴다`}</p>
+        : `${WEEKS}사이클이 마지막이다 — 여기서부터는 중량이 아니라 더블 프로그레션으로 넘긴다`}</p>
+      ${eff>xlCycle()
+        ? `<div class="warn">달력은 ${cur.cycle}사이클인데 엑셀 '현재 사이클'은 ${xlCycle()}이다 —
+             올릴 때가 됐다. 엑셀 시작중량_설정 C4를 ${cur.cycle}로 바꾸면 백오프 중량과 일차 시트가 같이 따라온다.
+             (쉰 주가 있었다면 대신 아래에서 한 주 미루기)</div>`
+        : cur.cycle<xlCycle()  /* 손으로 먼저 올린 경우 */
+        ? `<div class="cal-note">엑셀 '현재 사이클'이 ${xlCycle()}로 달력(${cur.cycle})보다 앞서 있다 —
+             손으로 먼저 올린 것으로 보고 ${xlCycle()}사이클 중량을 쓴다.</div>`
+        : ""}
       ${backFix(cur)}</div>`;
   } else {
     head=`<div class="cal-now"><b>복귀 시작 전</b>
@@ -1597,7 +1627,8 @@ function backCalHTML(){
   /* 주별 세션 체크 — 4회 중 몇 했나. 평일 B를 2주 연속 뺐는지가 여기서 보인다 */
   const wks=[];
   if(cur) for(let i=Math.max(1,cur.wk-5);i<=cur.wk;i++){
-    const from=dayAdd(BA.date,BSHIFT*7+(i-1)*7), cyc=Math.min(WEEKS,BA.cycle+Math.floor((i-1)/BA.step));
+    const from=dayAdd(BA.date,BSHIFT*7+(i-1)*7);
+    const cyc=Math.max(Math.min(WEEKS,BA.cycle+Math.floor((i-1)/BA.step)), i===cur.wk?eff:0);
     const got=BSESS[from]||{}, n=SLOTS.filter(s=>got[s]).length;
     wks.push(`<div class="log-row"${i===cur.wk?' style="--accent:var(--ink)"':""}>
       <div class="log-l"><b>${i}주차${i===cur.wk?" · 이번 주":""}</b>
@@ -1912,6 +1943,7 @@ function tmSteps(d,week,from){
 }
 function tmW(e){
   if(e.w==="위 참조"&&e.lift) return fmt(workWeight(e.lift,week))+"kg";
+  if(e.lo) return exW(e);
   const ov=OV.ex[mode+"|"+tab+"|"+e.name], w=String(ov?ov.w:e.w);
   return /^[\d.~\s]+$/.test(w) ? w.replace(/\s+$/,"")+"kg" : w;
 }

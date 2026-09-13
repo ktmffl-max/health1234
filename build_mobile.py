@@ -1597,12 +1597,21 @@ function backCalHTML(){
   if(cur){
     const nx=backNextAfter(eff), left=nx?dayGap(nx.from,tKey):0;
     const wkFrom=cur.from, wkTo=dayAdd(cur.from,6);
+    /* 이번 주가 증량 주인가 — 판정은 일정(달력이 낸 사이클)으로 한다.
+       엑셀 C4를 먼저 올려 둔 주는 '증량'도 '유지'도 아니라 미리 당겨 쓴 상태다 */
+    const prev=backWeekOf(dayAdd(wkFrom,-7));
+    const ahead = eff>cur.cycle;
+    const upWeek = !ahead && (!prev || prev.cycle<cur.cycle);
     head=`<div class="cal-now"><b>복귀 ${cur.wk}주차 · ${eff}사이클</b>
-      <p class="num">${+wkFrom.slice(5,7)}/${+wkFrom.slice(8)}(월) ~ ${+wkTo.slice(5,7)}/${+wkTo.slice(8)}(일)</p>
+      <p class="num">${+wkFrom.slice(5,7)}/${+wkFrom.slice(8)}(월) ~ ${+wkTo.slice(5,7)}/${+wkTo.slice(8)}(일)
+        · ${ahead ? `<b>먼저 올린 중량</b> — 일정상 ${eff}사이클은 ${(x=>`${+x.slice(5,7)}/${+x.slice(8)}`)(BA.cdate)}(월)부터다`
+             : upWeek ? "<b>증량 주</b>" : "<b>유지 주</b> — 지난주와 같은 중량"}</p>
       <p>${keys.map(k=>`${esc(LIFT[k].ko)} <b class="num">${fmt(workWeight(k,eff))}</b>kg`).join(" · ")}</p>
       <p>${nx
         ? `다음 증량 <b>${left<=0?"오늘":left+"일 뒤"}</b> — ${+nx.from.slice(5,7)}/${+nx.from.slice(8)}(월)부터 ${nx.cycle}사이클 ·
-           ${keys.map(k=>`${esc(LIFT[k].ko)} ${fmt(workWeight(k,nx.cycle))}`).join(" · ")}kg`
+           ${keys.map(k=>`${esc(LIFT[k].ko)} ${fmt(workWeight(k,nx.cycle))}`).join(" · ")}kg
+           <br>올라가는 폭은 ${keys.map(k=>`${esc(LIFT[k].ko)} +${fmt(workWeight(k,nx.cycle)-workWeight(k,eff))}`).join(" · ")}kg —
+           ${BA.step}주에 한 번이므로 주당으로 치면 그 절반이다`
         : `${WEEKS}사이클이 마지막이다 — 여기서부터는 중량이 아니라 더블 프로그레션으로 넘긴다`}</p>
       ${eff>xlCycle()
         ? `<div class="warn">달력은 ${cur.cycle}사이클인데 엑셀 '현재 사이클'은 ${xlCycle()}이다 —
@@ -1627,7 +1636,9 @@ function backCalHTML(){
     const fix=FIX[dow], acc=ACC[dow]||"";
     /* 주차는 줄 첫 칸(월)에 붙이고, 토 · 일에도 한 번 더 적는다 —
        고정 세션 둘이 어느 주에 속하는지가 이 달력에서 제일 자주 묻는 것이다 */
-    const badge = w && (dow===1 ? `${w.wk}주차${w.cycle!==(backWeekOf(dayAdd(key,-7))||w).cycle?` · ${w.cycle}사이클`:""}`
+    const pw = w && backWeekOf(dayAdd(key,-7));
+    const up = w && dow===1 && (!pw || pw.cycle<w.cycle);
+    const badge = w && (dow===1 ? `${w.wk}주차${up?` · ${w.cycle}사이클 ↑증량`:""}`
                       : dow===6||dow===0 ? `${w.wk}주차` : "");
     cells.push(`<div class="cal-cell${w?"":" blank"}${key===tKey?" today":""}${fix?"":" rest"}${dow===0?" sun":""}"
       style="${acc?`--acc:${acc}`:""}">
@@ -1656,7 +1667,8 @@ function backCalHTML(){
 
   return `<h2 class="daytitle">달력</h2>
   <p class="daysub">복귀는 요일이 유동이라 일차가 없다 — <b>주차</b>가 단위다. 달력도 월요일부터 시작하므로
-    <b>가로 한 줄이 한 주</b>이고 토 · 일은 그 줄의 끝에 있다. 사이클은 ${BA.step}주에 한 칸 올라간다.</p>
+    <b>가로 한 줄이 한 주</b>이고 토 · 일은 그 줄의 끝에 있다.
+    주차 숫자는 매주 오르지만 <b>중량은 ${BA.step}주에 한 번, '↑증량'이 붙은 주에만</b> 움직인다.</p>
   ${head}
   <div class="cal-bar"><button id="cal-prev">‹</button>
     <h3>${ym.y}년 ${ym.m+1}월</h3>

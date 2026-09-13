@@ -405,9 +405,11 @@ def parse_day(ws):
                 item["lift"] = lift
             # 백오프 = 직전 사이클의 톱세트 중량. 주차를 옮기면 같이 따라와야 하므로
             # 엑셀 수식의 캐시값을 쓰지 않고 리프트에 'lo'(몇 사이클 전)로 매단다
+            # 백오프 = 톱세트 − 5kg(= 2주 전 중량). 주차를 옮기면 같이 따라와야 하므로
+            # 엑셀 수식의 캐시값을 쓰지 않고 리프트에 'lo'(톱보다 몇 kg 아래)로 매단다
             elif "백오프" in item["name"] and day["main"]:
                 item["lift"] = day["main"]
-                item["lo"] = 1
+                item["lo"] = 5
             (current[1] if current else flat).append(item)
         r += 1
 
@@ -571,6 +573,21 @@ def parse_ramp(wb):
             "notes": parse_notes_block(ws, last + 1, "설계 논리")}
 
 
+def parse_home_anchor(wb):
+    """재택 1일차 기준일 — 시작중량_설정의 전용 칸. 라벨로 찾는다.
+
+    2026-09-13 전까지는 증량기록 '날짜' 열의 마지막 값을 썼는데, 그 열이 주차별
+    월요일로 채워지면서 기준이 미래 날짜가 돼 버렸다. 칸을 따로 뒀다."""
+    ws = wb["시작중량_설정"]
+    for r in range(1, ws.max_row + 1):
+        if s(ws.cell(r, 1).value) == "재택 1일차 기준일":
+            v = ws.cell(r, 3).value
+            if hasattr(v, "strftime"):
+                return {"date": v.strftime("%Y-%m-%d"),
+                        "cycle": int(num(ws.cell(4, 3).value, 1))}
+    return None
+
+
 def parse_anchor(wb):
     """증량기록 '날짜 (1일차)' 열 — 그 사이클의 1일차 날짜. 달력의 기준점이다.
 
@@ -581,7 +598,8 @@ def parse_anchor(wb):
     if "증량기록" not in wb.sheetnames:
         return None
     ws = wb["증량기록"]
-    hdr = next((r for r in range(1, 20) if s(ws.cell(r, 1).value) == "사이클"), None)
+    hdr = next((r for r in range(1, 20)
+                if s(ws.cell(r, 1).value) in ("주차", "사이클")), None)
     if hdr is None:
         return None
     c_date = next((c for c in range(1, ws.max_column + 1)
@@ -636,14 +654,21 @@ def parse_config(wb):
             "inc":   num(gr.cell(m["inc_row"], 3).value),
             "sets":  int(num(re.sub(r"\D+", " ", s(st.cell(m["start_row"], 6).value))
                              .split()[-1], 1)),
+            # 증량 주기(주). 프레스만 2 — 봉 전체 1kg이 최소 계단이라 매주 올리면 두 배 반이 된다
+            "every": max(1, int(num(gr.cell(m["inc_row"], 5).value, 1))),
         }
-    weeks = 0
-    for r in range(10, 60):
-        if s(gr.cell(r, 1).value).endswith(("사이클", "주차")):
+    # 표의 줄 수와 첫 줄의 번호. 2026-09-13 주 단위 전환으로 표가 6주차에서 시작한다 —
+    # '몇 번째 줄'과 '몇 주차'가 더는 같지 않으므로 base를 같이 실어 보낸다
+    weeks, base = 0, 0
+    for r in range(10, 80):
+        lab = s(gr.cell(r, 1).value)
+        if lab.endswith(("사이클", "주차")):
+            if not weeks:
+                base = int(num(re.sub(r"\D+", " ", lab).strip(), 1))
             weeks += 1
         elif weeks:
             break
-    return {"lifts": lifts, "weeks": weeks or 12,
+    return {"lifts": lifts, "weeks": weeks or 12, "base": base or 1,
             "week": int(num(st.cell(4, 3).value, 1))}
 
 
@@ -654,8 +679,8 @@ def parse_back_anchor(wb):
     블록을 아래쪽에 두고 행 번호에 의존하지 않는다. 칸이 없으면 None —
     그때는 앱이 복귀 달력 대신 '기준일을 채우라'는 안내를 띄운다."""
     ws = wb["시작중량_설정"]
-    want = {"프로그램 시작일": "date", "사이클 기준일": "cdate",
-            "기준 사이클": "cycle", "사이클 전진(주)": "step"}
+    want = {"프로그램 시작일": "date", "주차 기준일": "cdate",
+            "기준 주차": "cycle", "증량 전진(주)": "step"}
     got = {}
     for r in range(1, ws.max_row + 1):
         key = want.get(s(ws.cell(r, 1).value))
@@ -670,7 +695,14 @@ def parse_back_anchor(wb):
 
 
 def parse_progress_notes(wb):
-    return parse_notes_block(wb["증량기록"], 23, "운용 규칙")
+    """표 아래 해설. 표 길이가 바뀌므로 머리글을 찾아 표 끝 다음 줄부터 훑는다."""
+    ws = wb["증량기록"]
+    hdr = next((r for r in range(1, 20)
+                if s(ws.cell(r, 1).value) in ("주차", "사이클")), 9)
+    r = hdr + 1
+    while r <= ws.max_row and re.match(r"\d+", s(ws.cell(r, 1).value)):
+        r += 1
+    return parse_notes_block(ws, r, "운용 규칙")
 
 
 def parse_log(wb):
@@ -683,7 +715,8 @@ def parse_log(wb):
     if "증량기록" not in wb.sheetnames:
         return {}
     ws = wb["증량기록"]
-    hdr = next((r for r in range(1, 20) if s(ws.cell(r, 1).value) == "사이클"), None)
+    hdr = next((r for r in range(1, 20)
+                if s(ws.cell(r, 1).value) in ("주차", "사이클")), None)
     if hdr is None:
         return {}
     heads = {c: s(ws.cell(hdr, c).value) for c in range(1, ws.max_column + 1)}
@@ -796,7 +829,7 @@ def build(xlsx_path, out_path):
         "backPlan": parse_back_plan(wb),
         "progressNotes": parse_progress_notes(wb),
         "log":    parse_log(wb),
-        "anchor": parse_anchor(wb),
+        "anchor": parse_home_anchor(wb) or parse_anchor(wb),
         "backAnchor": parse_back_anchor(wb),
         "source": Path(xlsx_path).name,
     }
@@ -1210,6 +1243,8 @@ const D = /*__DATA__*/ null;
 const R = v => { const n=Math.round(v); return n%5===4 ? n+1 : n; };
 const fmt = v => (Math.round(v*1000)/1000).toString();
 const WEEKS = D.config.weeks;
+/* 표가 6주차에서 시작한다 — '몇 번째 줄'과 '몇 주차'가 다르므로 첫 줄 번호를 따로 쥔다 */
+const WBASE = D.config.base||1, WLAST = WBASE+WEEKS-1;
 const LIFT = D.config.lifts;
 
 /* ── 이 기기에서만 적용되는 중량 덮어쓰기 ─────────────────────────
@@ -1264,8 +1299,12 @@ function stepsTo(k,w){ let n=0; for(let c=1;c<w;c++) if(!missed(k,c)) n++; retur
    다음 칸은 올린 값에서 이어지므로, 시작중량 + 폭 × 칸수로는 재현되지 않는다 —
    엑셀 증량기록도 같은 방식이라 두 곳이 같은 숫자를 내려면 여기서도 걸어야 한다 */
 function ladder(k,w,base){
+  const L=LIFT[k], ev=L.every||1;
   let v=base;
-  for(let c=1;c<w;c++) if(!missed(k,c)) v=R(v+LIFT[k].inc);
+  for(let c=WBASE+1;c<=w;c++){
+    if(missed(k,c-1)) continue;              /* 앞 주가 미달이면 그 중량을 한 번 더 */
+    if((c-WBASE)%ev===0) v=R(v+L.inc);       /* 주기가 2면 격주에만 오른다(프레스) */
+  }
   return v;
 }
 const workWeight = (k,w) => ladder(k,w,startOf(k));
@@ -1277,13 +1316,14 @@ function startFor(k,w,n){
   for(let s=1;s<=Math.round(n)+1;s++){ const d=Math.abs(ladder(k,w,s)-n); if(d<bd){ bd=d; best=s; } }
   return best;
 }
+const clampW = w => Math.min(WLAST, Math.max(WBASE, w||WBASE));
 /* w사이클 직전까지 같은 종목이 몇 사이클 연속 미달인지. 3이면 엑셀 규칙 "10% 디로드 후 재상승" —
    자동으로 내리지는 않는다. 중량을 탭해서 직접 고치면 웜업·원판이 따라온다 */
 function missRun(k,w){ let n=0; for(let c=w-1;c>=1&&missed(k,c);c--) n++; return n; }
 function deloadNote(k,w){
   const cut = () => fmt(Math.max(20,R(workWeight(k,w)*0.9)));
-  if(missRun(k,w)>=3)   return `앞 3사이클 연속 미달 — 규칙은 이 사이클 10% 디로드(${cut()}kg)`;
-  if(missRun(k,w+1)>=3) return `3사이클 연속 미달 — 규칙은 다음 사이클 10% 디로드(${cut()}kg)`;
+  if(missRun(k,w)>=3)   return `앞 3주 연속 미달 — 규칙은 이 주 10% 디로드(${cut()}kg)`;
+  if(missRun(k,w+1)>=3) return `3주 연속 미달 — 규칙은 다음 주 10% 디로드(${cut()}kg)`;
   return "";
 }
 /* 사이클 c의 1일차 날짜. 달력 기준점에서 주기 길이만큼 되감거나 앞으로 센다 */
@@ -1359,8 +1399,8 @@ function liftCard(key,week,sets,name){
 /* 본세트 결과 한 줄 — 세션 끝나고 그 자리에서 적는다. 증량 탭의 카드와 같은 저장소다 */
 function liftLogHTML(key,week){
   const dl=deloadNote(key,week), held=missRun(key,week)>0;
-  return `<div class="lift-log"><div class="lift-log-h">이번 사이클 결과 <span>· ${week}사이클${
-      held?` · 앞 사이클 미달로 중량 유지`:""}</span>${dl?`<em>${esc(dl)}</em>`:""}</div>${logCtl(key,week)}</div>`;
+  return `<div class="lift-log"><div class="lift-log-h">이번 주 결과 <span>· ${week}주차${
+      held?` · 앞 주 미달로 중량 유지`:""}</span>${dl?`<em>${esc(dl)}</em>`:""}</div>${logCtl(key,week)}</div>`;
 }
 /* 한 종목 · 한 사이클 기록 조각 — [달성] [미달 N회]. 같은 버튼을 다시 누르면 비운다(미기록) */
 function logCtl(k,c){
@@ -1374,9 +1414,10 @@ function logCtl(k,c){
 }
 const esc = t => String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;");
 const escAttr = t => esc(t).replace(/"/g,"&quot;");
-/* 백오프 행의 중량 — 한 사이클 전 톱세트. 엑셀 캐시값이 아니라 지금 주차에서 낸다 */
+/* 백오프 행의 중량 — 톱세트 − lo(kg). 엑셀 캐시값이 아니라 지금 주차에서 낸다.
+   5kg은 5로 나눈 나머지를 안 바꾸므로 톱이 끼워지면 백오프도 끼워진다 */
 const exW = e => (e.lo&&e.lift&&LIFT[e.lift])
-  ? fmt(workWeight(e.lift,Math.max(1,week-e.lo)))+"kg" : e.w;
+  ? fmt(Math.max(20,workWeight(e.lift,week)-e.lo))+"kg" : e.w;
 function exHTML(e,prefix,sets,timed){
   const key=prefix+"|"+e.name, ov=OV.ex[key];
   const w=ov?ov.w:exW(e), canEdit=e.w!=="위 참조"&&!e.lo;
@@ -1485,7 +1526,7 @@ function backWeekOf(t){
   if(n<0) return null;
   const wk=Math.floor(n/7)+1;
   const cn=dayGap(t,BA.cdate)-BSHIFT*7;
-  const cyc=Math.min(WEEKS, Math.max(1, BA.cycle+Math.floor(cn/(BA.step*7))));
+  const cyc=clampW(BA.cycle+Math.floor(cn/(BA.step*7)));
   return {wk, cycle: cyc, from: dayAdd(BA.date,(wk-1)*7)};
 }
 /* 지금 쓰는 사이클보다 큰 사이클이 처음 시작되는 날. 손으로 먼저 올려 둔 경우에도
@@ -1493,7 +1534,7 @@ function backWeekOf(t){
 function backNextAfter(eff){
   for(let k=0; k<=WEEKS+2; k++){
     const c=BA.cycle+k;
-    if(c>WEEKS) return null;
+    if(c>WLAST) return null;
     if(c>eff) return {cycle:c, from: dayAdd(BA.cdate, BSHIFT*7+k*BA.step*7)};
   }
   return null;
@@ -1501,7 +1542,7 @@ function backNextAfter(eff){
 /* 복귀 화면의 사이클 — 달력이 낸 값과 엑셀 '현재 사이클'(C4) 중 큰 쪽을 쓴다.
    손으로 먼저 올렸으면 그 뜻을 따르고, 달력이 앞서면 올릴 때가 됐다는 뜻이다.
    중량 표가 C4에 매달려 있으므로(백오프 · 일차 시트 D열) 둘을 벌려 두면 엑셀과 폰이 갈린다 */
-const xlCycle = () => Math.min(WEEKS, Math.max(1, D.config.week||1));
+const xlCycle = () => clampW(D.config.week);
 function syncBackWeek(){
   const c=backWeekOf(ymd(new Date()));
   if(c) week=Math.max(c.cycle, xlCycle());
@@ -1542,7 +1583,7 @@ function calHTML(){
         <p>오늘 ${now.getMonth()+1}월 ${now.getDate()}일 (${DOW[now.getDay()]})${
           PLANMAP[cur.day]&&PLANMAP[cur.day].n?` · ${PLANMAP[cur.day].n}세트`:""}${
           D.home[cur.day]&&D.home[cur.day].main
-            ? ` · ${esc(LIFT[D.home[cur.day].main].ko)} ${fmt(workWeight(D.home[cur.day].main,Math.min(WEEKS,Math.max(1,cur.cycle))))}kg`:""}</p>
+            ? ` · ${esc(LIFT[D.home[cur.day].main].ko)} ${fmt(workWeight(D.home[cur.day].main,clampW(cur.cycle)))}kg`:""}</p>
        ${anchorFix(cur)}</div>`
     : `<div class="cal-now"><b>기준 날짜가 없다</b>
         <p>오늘이 몇 일차인지 한 번만 눌러주면 그 뒤로는 날짜로 자동 계산된다.
@@ -1597,22 +1638,21 @@ function backCalHTML(){
   if(cur){
     const nx=backNextAfter(eff), left=nx?dayGap(nx.from,tKey):0;
     const wkFrom=cur.from, wkTo=dayAdd(cur.from,6);
-    /* 이번 주가 증량 주인가 — 판정은 일정(달력이 낸 사이클)으로 한다.
-       엑셀 C4를 먼저 올려 둔 주는 '증량'도 '유지'도 아니라 미리 당겨 쓴 상태다 */
-    const prev=backWeekOf(dayAdd(wkFrom,-7));
+    /* 주 단위 전환 뒤로는 매주 오른다 — '증량 주냐'가 아니라 '얼마나 올랐냐'가 정보다.
+       프레스는 격주라 0이 뜨는 주가 있고, 그게 정상이다 */
     const ahead = eff>cur.cycle;
-    const upWeek = !ahead && (!prev || prev.cycle<cur.cycle);
+    const up = keys.map(k=>{
+      const d=workWeight(k,eff)-workWeight(k,Math.max(WBASE,eff-1));
+      return (d>0?"+":"")+fmt(d); }).join(" · ");
     head=`<div class="cal-now"><b>복귀 ${cur.wk}주차 · ${eff}사이클</b>
       <p class="num">${+wkFrom.slice(5,7)}/${+wkFrom.slice(8)}(월) ~ ${+wkTo.slice(5,7)}/${+wkTo.slice(8)}(일)
-        · ${ahead ? `<b>먼저 올린 중량</b> — 일정상 ${eff}사이클은 ${(x=>`${+x.slice(5,7)}/${+x.slice(8)}`)(BA.cdate)}(월)부터다`
-             : upWeek ? "<b>증량 주</b>" : "<b>유지 주</b> — 지난주와 같은 중량"}</p>
+        ${ahead?` · <b>엑셀을 먼저 올림</b>`:""}</p>
+      <p class="num" style="color:var(--mute)">지난주 대비 ${up}kg</p>
       <p>${keys.map(k=>`${esc(LIFT[k].ko)} <b class="num">${fmt(workWeight(k,eff))}</b>kg`).join(" · ")}</p>
       <p>${nx
-        ? `다음 증량 <b>${left<=0?"오늘":left+"일 뒤"}</b> — ${+nx.from.slice(5,7)}/${+nx.from.slice(8)}(월)부터 ${nx.cycle}사이클 ·
-           ${keys.map(k=>`${esc(LIFT[k].ko)} ${fmt(workWeight(k,nx.cycle))}`).join(" · ")}kg
-           <br>올라가는 폭은 ${keys.map(k=>`${esc(LIFT[k].ko)} +${fmt(workWeight(k,nx.cycle)-workWeight(k,eff))}`).join(" · ")}kg —
-           ${BA.step}주에 한 번이므로 주당으로 치면 그 절반이다`
-        : `${WEEKS}사이클이 마지막이다 — 여기서부터는 중량이 아니라 더블 프로그레션으로 넘긴다`}</p>
+        ? `다음 주(${nx.cycle}주차 · ${+nx.from.slice(5,7)}/${+nx.from.slice(8)} 월) —
+           ${keys.map(k=>`${esc(LIFT[k].ko)} ${fmt(workWeight(k,nx.cycle))}`).join(" · ")}kg`
+        : `${WLAST}주차가 표의 마지막이다 — 여기서부터는 중량이 아니라 더블 프로그레션으로 넘긴다`}</p>
       ${eff>xlCycle()
         ? `<div class="warn">달력은 ${cur.cycle}사이클인데 엑셀 '현재 사이클'은 ${xlCycle()}이다 —
              올릴 때가 됐다. 엑셀 시작중량_설정 C4를 ${cur.cycle}로 바꾸면 백오프 중량과 일차 시트가 같이 따라온다.
@@ -1636,10 +1676,7 @@ function backCalHTML(){
     const fix=FIX[dow], acc=ACC[dow]||"";
     /* 주차는 줄 첫 칸(월)에 붙이고, 토 · 일에도 한 번 더 적는다 —
        고정 세션 둘이 어느 주에 속하는지가 이 달력에서 제일 자주 묻는 것이다 */
-    const pw = w && backWeekOf(dayAdd(key,-7));
-    const up = w && dow===1 && (!pw || pw.cycle<w.cycle);
-    const badge = w && (dow===1 ? `${w.wk}주차${up?` · ${w.cycle}사이클 ↑증량`:""}`
-                      : dow===6||dow===0 ? `${w.wk}주차` : "");
+    const badge = w && (dow===1||dow===6||dow===0 ? `${w.wk}주차` : "");
     cells.push(`<div class="cal-cell${w?"":" blank"}${key===tKey?" today":""}${fix?"":" rest"}${dow===0?" sun":""}"
       style="${acc?`--acc:${acc}`:""}">
       <b>${dn}</b>${w?`${fix?`<i style="color:${acc}">${esc(D.back[fix]?D.back[fix].t.split(" ")[0]:fix)}</i>`
@@ -1668,7 +1705,7 @@ function backCalHTML(){
   return `<h2 class="daytitle">달력</h2>
   <p class="daysub">복귀는 요일이 유동이라 일차가 없다 — <b>주차</b>가 단위다. 달력도 월요일부터 시작하므로
     <b>가로 한 줄이 한 주</b>이고 토 · 일은 그 줄의 끝에 있다.
-    주차 숫자는 매주 오르지만 <b>중량은 ${BA.step}주에 한 번, '↑증량'이 붙은 주에만</b> 움직인다.</p>
+<b>중량은 매주 조금씩</b> 오른다 — 스쿼트 · 데드 2~3kg · 벤치 1kg · 프레스는 격주 1kg.</p>
   ${head}
   <div class="cal-bar"><button id="cal-prev">‹</button>
     <h3>${ym.y}년 ${ym.m+1}월</h3>
@@ -1791,12 +1828,12 @@ function progressHTML(week){
   /* 날짜·'지금'은 재택 일차 회전에서 나온다. 복귀는 손으로 2주에 한 칸이라 붙이지 않는다 */
   const bk=mode==="back", cur=bk?null:cycleOf(ymd(new Date())), date=bk?null:cycleDate(c);
   const card=`<section class="logcard">
-    <div class="logcard-h"><b>${c}사이클 기록</b><span>${date?`${+date.slice(5,7)}/${+date.slice(8)} 시작`:""}${
+    <div class="logcard-h"><b>${c}주차 기록</b><span>${date?`${+date.slice(5,7)}/${+date.slice(8)} 시작`:""}${
       cur&&cur.cycle===c?" · 지금":""}</span></div>
     ${keys.map(k=>{ const dl=deloadNote(k,c);
       return `<div class="log-row" style="--accent:${LIFT[k].accent}">
       <div class="log-l"><b>${esc(LIFT[k].ko)}</b><span class="num">${fmt(workWeight(k,c))}kg × 5회 × ${LIFT[k].sets}세트${
-        missRun(k,c)>0?" · 앞 사이클 미달로 유지":""}</span>${dl?`<em>${esc(dl)}</em>`:""}</div>
+        missRun(k,c)>0?" · 앞 주 미달로 유지":""}</span>${dl?`<em>${esc(dl)}</em>`:""}</div>
       ${logCtl(k,c)}</div>`; }).join("")}
     <div class="log-row"><div class="log-l"><b>다음날 피로</b><span>0 가뿐 · 3 뻐근하지만 훈련 가능 · 5 탈진. 다음 세션 아침에</span></div>
       <div class="seg fat">${[0,1,2,3,4,5].map(n=>`<button class="${fat===String(n)?'on':''}" data-logf="fat" data-logc="${c}" data-logv="${n}">${n}</button>`).join("")}</div></div>
@@ -1809,7 +1846,7 @@ function progressHTML(week){
   const mark = v => v==="" ? "" : isDone(v) ? `<i class="lm ok">달성</i>`
     : `<i class="lm bad">${/^\d+$/.test(v)?v+"회":"미달"}</i>`;
   const rows=[];
-  for(let w=1;w<=WEEKS;w++){
+  for(let w=WBASE;w<=WLAST;w++){
     const j=logVal(w,"joint"), f=logVal(w,"fat");
     rows.push(`<tr data-logrow="${w}" style="${w===week?'background:var(--raised)':''}"><td class="num">${w}</td>`+
       keys.map(k=>`<td class="num">${fmt(workWeight(k,w))}${mark(logVal(w,k))}</td>`).join("")+
@@ -1817,26 +1854,26 @@ function progressHTML(week){
   }
   const mine=phoneOnly(), lines=logLines();
   return `<h2 class="daytitle">증량 기록</h2>
-  <p class="daysub">엑셀 증량기록과 같은 규칙 — 달성·공란은 다음 사이클에 오르고, 미달을 적으면 그 중량을 한 번 더 든다.
-    위 −/+ 로 사이클을 옮긴다. 기억으로 소급해 채우지 말 것.${bk
-      ? " 복귀 중에는 <b>2주에 한 칸</b> — 올리기 전에 이 사이클 결과를 먼저 적는다."
+  <p class="daysub">엑셀 증량기록과 같은 규칙 — 달성·공란은 다음 주에 오르고, 미달을 적으면 그 중량을 한 번 더 든다.
+    위 −/+ 로 주차를 옮긴다. 기억으로 소급해 채우지 말 것.${bk
+      ? " 매주 한 칸씩 오른다 — 올리기 전에 이 주의 결과를 먼저 적는다."
       : ""}</p>
   ${card}
-  <table class="tbl"><thead><tr><th>사이클</th>${keys.map(k=>`<th>${esc(LIFT[k].ko)}</th>`).join("")}<th>피로</th></tr></thead>
+  <table class="tbl"><thead><tr><th>주차</th>${keys.map(k=>`<th>${esc(LIFT[k].ko)}</th>`).join("")}<th>피로</th></tr></thead>
   <tbody>${rows.join("")}</tbody></table>
-  <p class="footnote">표의 중량은 위 기록을 반영한 값이다 — 미달 뒤 사이클은 오르지 않는다. 줄을 누르면 그 사이클을 적는다.</p>
+  <p class="footnote">표의 중량은 위 기록을 반영한 값이다 — 미달 뒤 주는 오르지 않는다. 줄을 누르면 그 주를 적는다.</p>
   ${mine.length?`<div class="ovbox"><h5>이 폰에만 있는 기록 <span>· 엑셀 증량기록에 옮겨 적으면 여기서 사라진다</span></h5>
     <ul>${mine.map(t=>`<li>${esc(t)}</li>`).join("")}</ul>
     <button id="log-copy" class="plain">전체 기록 텍스트로 복사</button>
     <details class="log-text"><summary>복사가 안 되면 여기서 길게 눌러 복사</summary><pre>${esc(lines.join("\n"))}</pre></details></div>`:""}
-  <div class="notes"><h5>${bk?"사이클당 증량폭 (복귀 = 2주)":"사이클당 증량폭"}</h5><ul>${keys.map(k=>
+  <div class="notes"><h5>주당 증량폭</h5><ul>${keys.map(k=>
     `<li>${esc(LIFT[k].ko)} ${fmt(LIFT[k].inc)}kg</li>`).join("")}</ul><p class="footnote">한쪽 원판이 2.5 · 1 · 0.5kg 하나씩이라 총 중량이 5로 나눈 나머지 4면 못 끼운다 — 그 칸은 자동으로 1kg 올라가므로 폭이 칸마다 조금씩 다르다.</p></div>
   ${notesHTML(D.progressNotes)}`;
 }
 /* 사이클별 한 줄 — 엑셀 증량기록에 옮겨 적기 위한 텍스트. 기록이 있는 사이클만 */
 function logLines(){
   const keys=Object.keys(LIFT), out=[];
-  for(let c=1;c<=WEEKS;c++){
+  for(let c=WBASE;c<=WLAST;c++){
     const p=[];
     keys.forEach(k=>{ const v=logVal(c,k); if(v==="") return;
       p.push(LIFT[k].ko+" "+(isDone(v)?"O":(/^\d+$/.test(v)?v+"회":"X"))); });
@@ -2386,7 +2423,7 @@ function bindEdits(){
     render(); }; });
   document.querySelectorAll("[data-cal]").forEach(el=>{ el.onclick=()=>{
     const c=Number(el.dataset.cyc);
-    if(c>=1&&c<=WEEKS) week=c;
+    if(c>=WBASE&&c<=WLAST) week=c;
     tab=el.dataset.cal; render(); window.scrollTo({top:0}); }; });
   /* data-tm="" = 세션 처음부터 · data-tm="종목명" = 그 종목부터 */
   document.querySelectorAll("[data-tm]").forEach(el=>{ el.onclick=()=>{
@@ -2416,7 +2453,7 @@ function bindEdits(){
   const lc=document.getElementById("log-copy"); if(lc) lc.onclick=()=>logCopy(lc);
 }
 
-let mode="home", week=D.config.week||1, tab=D.homeOrder[0];
+let mode="home", week=clampW(D.config.week), tab=D.homeOrder[0];
 const tabsFor = m => (m==="home"
   ? D.homeOrder.map(d=>[d,d+"일"]).concat([["cal","달력"],["plan","주기"],["prog","증량"],["check","검산"]])
   : D.backOrder.map(d=>[d,d]).concat([["bcal","달력"],["bplan","주간"],["prog","증량"],["check","검산"]]));
@@ -2431,13 +2468,13 @@ function render(){
   document.getElementById("wk-track").style.display = "flex";
   document.getElementById("wk-num").textContent=week;
   /* 큰 숫자는 중량 사이클이다. 볼륨이 그보다 앞서 있으면 여기서 같이 밝힌다 */
-  document.getElementById("wk-of").textContent=`CYCLE / ${WEEKS}`
-    + (mode==="back" ? " · 2주에 한 칸"
+  document.getElementById("wk-of").textContent=`WEEK / ${WLAST}`
+    + (mode==="back" ? " · 매주 한 칸"
        : rampOn()&&vWeek(week)!==week ? ` · 볼륨 ${vWeek(week)}주` : "");
   document.getElementById("wk-track").innerHTML=
-    Array.from({length:WEEKS},(_,i)=>`<span class="${i<week?'on':''}"></span>`).join("");
-  document.getElementById("wk-down").disabled=week<=1;
-  document.getElementById("wk-up").disabled=week>=WEEKS;
+    Array.from({length:WEEKS},(_,i)=>`<span class="${i<week-WBASE+1?'on':''}"></span>`).join("");
+  document.getElementById("wk-down").disabled=week<=WBASE;
+  document.getElementById("wk-up").disabled=week>=WLAST;
   const set = mode==="home"?D.home:D.back;
   let html;
   if(tab==="cal") html=calHTML();
@@ -2476,8 +2513,8 @@ document.getElementById("tm-play").onclick=tmPause;
 document.getElementById("tm-next").onclick=()=>tmGo(1);
 document.getElementById("tm-prev").onclick=()=>tmGo(-1);
 document.getElementById("ver").textContent=(D.source.match(/v\d+/)||[""])[0];
-document.getElementById("wk-up").onclick=()=>{if(week<WEEKS){week++;render();}};
-document.getElementById("wk-down").onclick=()=>{if(week>1){week--;render();}};
+document.getElementById("wk-up").onclick=()=>{if(week<WLAST){week++;render();}};
+document.getElementById("wk-down").onclick=()=>{if(week>WBASE){week--;render();}};
 document.getElementById("m-home").onclick=()=>{mode="home";tab=D.homeOrder[0];
   document.getElementById("m-home").setAttribute("aria-pressed","true");
   document.getElementById("m-back").setAttribute("aria-pressed","false");render();};
@@ -2492,8 +2529,8 @@ try{
   const cur0=cycleOf(ymd(new Date()));
   const moved = !st || st.on!==ymd(new Date()) || st.cd!==cur0.day;
   if(cur0&&moved&&(!st||st.mode!=="back")){
-    tab=cur0.day; week=Math.min(WEEKS,Math.max(1,cur0.cycle));
-  } else if(st&&st.mode){ mode=st.mode; week=Math.min(st.week||1,WEEKS); tab=st.tab||tab;
+    tab=cur0.day; week=clampW(cur0.cycle);
+  } else if(st&&st.mode){ mode=st.mode; week=clampW(st.week); tab=st.tab||tab;
     document.getElementById("m-home").setAttribute("aria-pressed",mode==="home");
     document.getElementById("m-back").setAttribute("aria-pressed",mode==="back"); }
   /* 복귀로 켜지는 경우 — 사이클은 지난 번에 보던 값이 아니라 오늘 날짜가 정한다.

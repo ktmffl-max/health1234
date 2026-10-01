@@ -42,10 +42,12 @@ for _stream in (sys.stdout, sys.stderr):
 # 2026-08-28에 8일 주기로 옮기며 D1~D8 형태가 현행이 됐고, 요일 형태는 옛 워크북 호환용이다.
 WEEKDAYS = "월화수목금토일"
 DAY_SHEET = re.compile(r"^(?:D(\d+)|([월화수목금토일]))_")
-# 복귀판은 주 4회 2분할. 12시간 근무 요일이 유동이라 평일 두 세션은 요일이 아니라
-# 슬롯('평A' · '평B')으로만 부른다 — 그 주 근무표를 보고 8시간인 날에 넣는다.
-BACK_DAYS = [("평A", "복귀_평일A_가슴"), ("평B", "복귀_평일B_어깨"),
-             ("토", "복귀_토_하체"), ("일", "복귀_일_등")]
+# 복귀판은 주 6회 요일 고정 (2026-10-02 개편). 현장 근무가 끝나 요일을 박을 수 있게 됐고,
+# 큰 부위 셋을 둘로 쪼개 가슴 · 등 · 하체가 주 2회가 됐다. 금요일만 쉰다.
+# 순서는 토요일부터다 — 사용자가 주의 출발을 토요일로 잡았다.
+BACK_DAYS = [("토", "복귀_토_하체전면"), ("일", "복귀_일_등광배"),
+             ("월", "복귀_월_가슴"), ("화", "복귀_화_팔"),
+             ("수", "복귀_수_하체후면"), ("목", "복귀_목_등승모")]
 
 
 def home_days(wb):
@@ -626,8 +628,8 @@ def parse_back_plan(wb):
     ws = wb["복귀_주간계획"]
     hdr = None
     for r in range(1, 12):
-        # 주 4회판은 요일이 유동이라 머리글이 '슬롯'이다. 옛 워크북('요일')도 같이 받는다.
-        if s(ws.cell(r, 1).value) in ("슬롯", "요일"):
+        # 주 6회판은 요일이 고정이라 머리글이 '요일'이다. 옛 주 4회판('슬롯')도 같이 받는다.
+        if s(ws.cell(r, 1).value) in ("요일", "슬롯"):
             hdr = r; break
     rows = []
     if hdr:
@@ -1507,8 +1509,8 @@ try{ const o=JSON.parse(localStorage.getItem(AKEY)||"null"); if(o&&o.date) ANCHO
 const saveAnchor = () => { try{ localStorage.setItem(AKEY,JSON.stringify(ANCHOR)); }catch(e){} };
 
 /* ── 복귀 달력 ─────────────────────────────────────────────────────
-   복귀는 요일이 유동이라 '몇 일차'가 없다. 대신 주차가 단위다 —
-   월요일에 주차가 넘어가고, 사이클은 그 주차가 정한다(2주에 한 칸).
+   복귀는 주기가 아니라 주차가 단위다 — 월요일에 주차가 넘어가고,
+   중량은 그 주차가 정한다(2026-09-13 전환 뒤로 매주 한 칸).
    사용자가 손으로 셀 일이 없게 하는 것이 이 블록의 전부다. */
 const BA = D.backAnchor || null;
 const BSKEY="wk-bshift", BCKEY="wk-bsess";
@@ -1628,8 +1630,15 @@ function backCalHTML(){
   const keys=Object.keys(LIFT), SLOTS=D.backOrder;
   const ym=calYM||{y:now.getFullYear(),m:now.getMonth()};
   const first=new Date(ym.y,ym.m,1), last=new Date(ym.y,ym.m+1,0);
-  const ACC={6:"var(--sq)",0:"var(--dl)"};      /* 토 = 하체(스쿼트) · 일 = 등(데드) */
-  const FIX={6:"토",0:"일"};
+  /* 주 6회 요일 고정 (2026-10-02). dow: 0=일 … 6=토. 금(5)만 휴식이다.
+     색은 그 날 증량을 추적하는 메인 리프트를 가리킨다 — 토 스쿼트 · 월 벤치 · 수 데드+프레스.
+     메인이 없는 세 날(일 · 화 · 목)은 색이 없다. */
+  const ACC={6:"var(--sq)",1:"var(--bp)",3:"var(--dl)"};
+  const FIX={6:"토",0:"일",1:"월",2:"화",3:"수",4:"목"};
+  const MAIN={6:"스쿼트",1:"벤치",3:"데드 · 프레스"};
+  /* 달력 칸에 쓸 짧은 이름 — 주간계획 '블록' 열에서 온다. 토 · 수가 둘 다 '하체'라
+     요일 시트 제목에서 뽑으면 구별이 안 된다 */
+  const BLK={}; ((D.backPlan&&D.backPlan.rows)||[]).forEach(r=>{ BLK[r[0]]=r[1]; });
 
   /* 오늘 카드 — 주차 · 사이클 · 네 리프트 중량 · 다음 증량까지 */
   /* 쓰는 사이클 = 달력이 낸 값과 엑셀 C4 중 큰 쪽. 중량 표가 C4에 매달려 있어서다 */
@@ -1674,17 +1683,18 @@ function backCalHTML(){
   for(let dn=1;dn<=last.getDate();dn++){
     const d=new Date(ym.y,ym.m,dn), key=ymd(d), dow=d.getDay(), w=backWeekOf(key);
     const fix=FIX[dow], acc=ACC[dow]||"";
-    /* 주차는 줄 첫 칸(월)에 붙이고, 토 · 일에도 한 번 더 적는다 —
-       고정 세션 둘이 어느 주에 속하는지가 이 달력에서 제일 자주 묻는 것이다 */
+    /* 주차는 줄 첫 칸(월)과 줄 끝의 토 · 일에 적는다. 주는 월요일에 넘어가지만
+       훈련 주는 토요일에 출발하므로 둘 다 보여야 '지금 몇 주차'가 안 헷갈린다 */
     const badge = w && (dow===1||dow===6||dow===0 ? `${w.wk}주차` : "");
     cells.push(`<div class="cal-cell${w?"":" blank"}${key===tKey?" today":""}${fix?"":" rest"}${dow===0?" sun":""}"
       style="${acc?`--acc:${acc}`:""}">
-      <b>${dn}</b>${w?`${fix?`<i style="color:${acc}">${esc(D.back[fix]?D.back[fix].t.split(" ")[0]:fix)}</i>`
-        :`<i class="num" style="color:var(--mute)">평일</i>`}
-      <span>${fix?"고정":"A · B 중"}</span>${badge?`<em>${badge}</em>`:""}`:""}</div>`);
+      <b>${dn}</b>${w?`${fix
+        ? `<i style="color:${acc||"var(--ink)"}">${esc(BLK[fix]||fix)}</i>
+           <span>${esc(MAIN[dow]||"고정")}</span>`
+        : `<i class="num" style="color:var(--mute)">휴식</i><span>금</span>`}${badge?`<em>${badge}</em>`:""}`:""}</div>`);
   }
 
-  /* 주별 세션 체크 — 4회 중 몇 했나. 평일 B를 2주 연속 뺐는지가 여기서 보인다 */
+  /* 주별 세션 체크 — 6회 중 몇 했나. 화요일을 2주 연속 뺐는지가 여기서 보인다 */
   const wks=[];
   if(cur) for(let i=Math.max(1,cur.wk-5);i<=cur.wk;i++){
     const from=dayAdd(BA.date,(i-1)*7);
@@ -1694,17 +1704,17 @@ function backCalHTML(){
     wks.push(`<div class="log-row"${i===cur.wk?' style="--accent:var(--ink)"':""}>
       <div class="log-l"><b>${i}주차${i===cur.wk?" · 이번 주":""}</b>
         <span class="num">${+from.slice(5,7)}/${+from.slice(8)} ~ ${(x=>`${+x.slice(5,7)}/${+x.slice(8)}`)(dayAdd(from,6))}
-          · ${cyc}사이클 · ${n}/4회${!got["평B"]&&n>0?" · 평일 B 빠짐":""}</span></div>
+          · ${cyc}주차 중량 · ${n}/6회${!got["화"]&&n>0?" · 화요일 빠짐":""}</span></div>
       <div class="seg">${SLOTS.map(s=>`<button class="${got[s]?"on ok":""}" data-bsess="${from}" data-bslot="${s}">${s}</button>`).join("")}</div>
     </div>`);
   }
   const miss=wks.length>1 && cur && [cur.wk,cur.wk-1].every(i=>{
     const f=dayAdd(BA.date,BSHIFT*7+(i-1)*7), g=BSESS[f]||{};
-    return SLOTS.some(s=>g[s]) && !g["평B"]; });
+    return SLOTS.some(s=>g[s]) && !g["화"]; });
 
   return `<h2 class="daytitle">달력</h2>
-  <p class="daysub">복귀는 요일이 유동이라 일차가 없다 — <b>주차</b>가 단위다. 달력도 월요일부터 시작하므로
-    <b>가로 한 줄이 한 주</b>이고 토 · 일은 그 줄의 끝에 있다.
+  <p class="daysub">복귀는 <b>주차</b>가 단위다. 달력은 월요일부터 시작하므로 <b>가로 한 줄이 한 주</b>이고,
+    훈련 주는 그 줄 끝의 <b>토요일에 출발해</b> 다음 줄 목요일에 끝난다. 쉬는 날은 금요일 하나다.
 <b>중량은 매주 조금씩</b> 오른다 — 스쿼트 · 데드 2~3kg · 벤치 1kg · 프레스는 격주 1kg.</p>
   ${head}
   <div class="cal-bar"><button id="cal-prev">‹</button>
@@ -1712,13 +1722,14 @@ function backCalHTML(){
     <button id="cal-today">오늘</button><button id="cal-next">›</button></div>
   <div class="cal-grid">${[..."월화수목금토일"].map((w,i)=>`<div class="cal-dow${i===6?" sun":""}">${w}</div>`).join("")}
     ${cells.join("")}</div>
-  <div class="cal-key"><span><i style="background:var(--sq)"></i>토 고정 — 하체</span>
-    <span><i style="background:var(--dl)"></i>일 고정 — 등</span>
-    <span><i style="border:1px dashed var(--line)"></i>평일 — 8시간인 날 2회</span></div>
+  <div class="cal-key"><span><i style="background:var(--sq)"></i>토 — 스쿼트</span>
+    <span><i style="background:var(--bp)"></i>월 — 벤치</span>
+    <span><i style="background:var(--dl)"></i>수 — 데드 · 프레스</span>
+    <span><i style="border:1px dashed var(--line)"></i>금 — 휴식</span></div>
   ${wks.length?`<section class="logcard"><div class="logcard-h"><b>주별 세션</b>
-    <span>· 한 주에 4회. 누르면 이 폰에 남는다</span></div>${wks.join("")}
-    ${miss?`<div class="warn">평일 B가 2주 연속 빠졌다 — 후면 · 측면 삼각이 통째로 비는 주가 둘이다.
-      이번 주는 평일 A 뒤에 축약분(레터럴 3 + 케이블 리버스 플라이 3)을 얹는다.</div>`:""}</section>`:""}`;
+    <span>· 한 주에 6회. 누르면 이 폰에 남는다</span></div>${wks.join("")}
+    ${miss?`<div class="warn">화요일이 2주 연속 빠졌다 — 전완 · 목 · 복근이 통째로 비는 주가 둘이다.
+      세 부위 전부 화요일에만 있다. 이번 주는 일요일 뒤에 리스트 컬 2종(6세트)이라도 얹는다.</div>`:""}</section>`:""}`;
 }
 /* 복귀 주차 보정 — 디로드나 통째로 쉰 주를 뒤로 미룬다. 이 폰에만 남는다 */
 function backFix(cur){
@@ -1759,7 +1770,7 @@ function checkHTML(){
   const wk  = rows.some(r=>r[8]), span = (adj?4:3) + (wk?1:0);
   return `<h2 class="daytitle">세트 검산</h2>
   <p class="daysub">${back
-    ? "세트는 근육군 단위로 센다. 복귀판은 주 4회 · 주 단위라 이 숫자가 곧 주간 세트다. 실질 = 직접 + 간접 추정."
+    ? "세트는 근육군 단위로 센다. 복귀판은 주 6회 · 주 단위라 이 숫자가 곧 주간 세트다. 실질 = 직접 + 간접 추정."
     : `세트는 근육군 단위로 센다. 실질 = 직접 + 간접 추정 — 이건 사이클당(${CYCLE}일) 세트다. 판정은 주당 환산(×7/${CYCLE})으로 내린다.`}</p>
   ${(b=>b?`<div class="budget ${b.left<0?"bad":"ok"}">
     <b>${b.state}</b>
@@ -1816,7 +1827,7 @@ function planHTML(){
 function backPlanHTML(){
   const p=D.backPlan;
   return `<h2 class="daytitle">복귀 주간 계획</h2><p class="daysub">${esc(p.sub)}</p>
-  <table class="tbl"><thead><tr><th>슬롯</th><th>근무</th><th>고정</th><th style="text-align:left">훈련</th><th>세트</th></tr></thead><tbody>
+  <table class="tbl"><thead><tr><th>요일</th><th>블록</th><th>고정</th><th style="text-align:left">훈련</th><th>세트</th></tr></thead><tbody>
   ${p.rows.map(r=>`<tr class="${r[4]?'':'rest'}"><td>${esc(r[0])}</td>
     <td class="num" style="color:var(--mute)">${esc(r[1])}</td><td class="num" style="color:var(--mute)">${esc(r[2])}</td>
     <td class="wrap" style="font-weight:600;color:var(--ink)">${esc(r[3])}</td><td class="num">${r[4]||"—"}</td></tr>`).join("")}
@@ -1825,7 +1836,7 @@ function backPlanHTML(){
 }
 function progressHTML(week){
   const keys=Object.keys(LIFT), c=week, fat=logVal(c,"fat");
-  /* 날짜·'지금'은 재택 일차 회전에서 나온다. 복귀는 손으로 2주에 한 칸이라 붙이지 않는다 */
+  /* 날짜·'지금'은 재택 일차 회전에서 나온다. 복귀는 달력이 주차를 세므로 붙이지 않는다 */
   const bk=mode==="back", cur=bk?null:cycleOf(ymd(new Date())), date=bk?null:cycleDate(c);
   const card=`<section class="logcard">
     <div class="logcard-h"><b>${c}주차 기록</b><span>${date?`${+date.slice(5,7)}/${+date.slice(8)} 시작`:""}${
@@ -2463,7 +2474,7 @@ function render(){
   nav.innerHTML=tabsFor(mode).map(([k,l])=>`<button data-k="${k}" aria-pressed="${k===tab}">${l}</button>`).join("");
   nav.querySelectorAll("button").forEach(b=>b.onclick=()=>{tab=b.dataset.k;render();window.scrollTo({top:0});});
   /* 사이클 바는 양쪽 모드에 다 띄운다 — 중량 사다리는 재택 · 복귀가 같은 칸을 쓴다.
-     다른 것은 올리는 속도뿐이다(재택 사이클마다 · 복귀 2주에 한 칸). */
+     다른 것은 올리는 속도뿐이다(재택 10일 주기마다 · 복귀 매주 한 칸). */
   document.getElementById("weekbar").style.display = "flex";
   document.getElementById("wk-track").style.display = "flex";
   document.getElementById("wk-num").textContent=week;

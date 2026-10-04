@@ -730,7 +730,8 @@ def parse_back_anchor(wb):
     그때는 앱이 복귀 달력 대신 '기준일을 채우라'는 안내를 띄운다."""
     ws = wb["시작중량_설정"]
     want = {"프로그램 시작일": "date", "주차 기준일": "cdate",
-            "기준 주차": "cycle", "증량 전진(주)": "step", "디로드 시작일": "deload"}
+            "기준 주차": "cycle", "증량 전진(주)": "step", "디로드 시작일": "deload",
+            "디로드 간격(주)": "dlevery"}
     got = {}
     for r in range(1, ws.max_row + 1):
         key = want.get(s(ws.cell(r, 1).value))
@@ -747,7 +748,7 @@ def parse_back_anchor(wb):
         return None
     return {"date": got["date"], "cdate": got["cdate"],
             "cycle": got["cycle"], "step": got.get("step") or 2,
-            "deload": got.get("deload") or []}
+            "deload": got.get("deload") or [], "dlevery": got.get("dlevery") or 0}
 
 
 def parse_progress_notes(wb):
@@ -1589,7 +1590,11 @@ const dayAdd = (t,n) => { const d=ymdParse(t); d.setDate(d.getDate()+n); return 
    (사용자 지정 2026-10-04 — '주차로 새지 말고 디로드 주라고만'). 주차 · 중량 칸 · 엑셀 C4가
    전부 그 주에 멈추므로 세 숫자가 디로드 뒤에도 같이 간다. 세트는 절반으로 보인다.
    주차 기준일보다 앞선 디로드는 기준일에 이미 반영돼 있으므로 중량 계산에서는 그 뒤의 것만 뺀다 */
-const DLD = ((BA&&BA.deload)||[]).slice().sort();
+/* 적힌 날짜 + '디로드 간격(주)'로 마지막 날짜에서 계속 반복(증량 6주 + 디로드 1주 = 7).
+   앞당긴 디로드는 그 날짜를 적으면 거기서 다시 센다. 80주 앞까지만 만든다 — 중량 표는 그 전에 끝난다 */
+const DLD = (()=>{ const L=((BA&&BA.deload)||[]).slice().sort(), ev=(BA&&BA.dlevery)|0;
+  if(L.length&&ev>0){ let t=L[L.length-1]; for(let i=0;i<Math.ceil(80/ev);i++){ t=dayAdd(t,ev*7); L.push(t); } }
+  return L; })();
 function backWeekOf(t){
   if(!BA) return null;
   const n=dayGap(t,BA.date);

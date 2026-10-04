@@ -1511,7 +1511,8 @@ try{ const o=JSON.parse(localStorage.getItem(AKEY)||"null"); if(o&&o.date) ANCHO
 const saveAnchor = () => { try{ localStorage.setItem(AKEY,JSON.stringify(ANCHOR)); }catch(e){} };
 
 /* ── 복귀 달력 ─────────────────────────────────────────────────────
-   복귀는 주기가 아니라 주차가 단위다 — 월요일에 주차가 넘어가고,
+   복귀는 주기가 아니라 주차가 단위다 — 토요일에 주차가 넘어가고(2026-10-04: 훈련 주가
+   토요일에 출발하므로 월요일 넘김을 버렸다. 넘기는 요일은 엑셀 '프로그램 시작일'의 요일이다),
    중량은 그 주차가 정한다(2026-09-13 전환 뒤로 매주 한 칸).
    사용자가 손으로 셀 일이 없게 하는 것이 이 블록의 전부다. */
 const BA = D.backAnchor || null;
@@ -1520,6 +1521,7 @@ let BSHIFT=0;  try{ BSHIFT=Number(localStorage.getItem(BSKEY)||0)||0; }catch(e){
 let BSESS={};  try{ BSESS=JSON.parse(localStorage.getItem(BCKEY)||"{}")||{}; }catch(e){}
 const bSave = () => { try{ localStorage.setItem(BSKEY,String(BSHIFT));
   localStorage.setItem(BCKEY,JSON.stringify(BSESS)); }catch(e){} };
+const DOWK = t => "일월화수목금토"[ymdParse(t).getDay()];
 const dayAdd = (t,n) => { const d=ymdParse(t); d.setDate(d.getDate()+n); return ymd(d); };
 /* 주차와 사이클은 기준이 다르다 — 주차는 프로그램 시작일에서 세는 숫자일 뿐이고,
    사이클은 중량이 매달린 숫자라 사이클 기준일에서 따로 센다. 하나로 묶으면
@@ -1656,12 +1658,12 @@ function backCalHTML(){
       const d=workWeight(k,eff)-workWeight(k,Math.max(WBASE,eff-1));
       return (d>0?"+":"")+fmt(d); }).join(" · ");
     head=`<div class="cal-now"><b>복귀 ${cur.wk}주차 · ${eff}사이클</b>
-      <p class="num">${+wkFrom.slice(5,7)}/${+wkFrom.slice(8)}(월) ~ ${+wkTo.slice(5,7)}/${+wkTo.slice(8)}(일)
+      <p class="num">${+wkFrom.slice(5,7)}/${+wkFrom.slice(8)}(${DOWK(wkFrom)}) ~ ${+wkTo.slice(5,7)}/${+wkTo.slice(8)}(${DOWK(wkTo)})
         ${ahead?` · <b>엑셀을 먼저 올림</b>`:""}</p>
       <p class="num" style="color:var(--mute)">지난주 대비 ${up}kg</p>
       <p>${keys.map(k=>`${esc(LIFT[k].ko)} <b class="num">${fmt(workWeight(k,eff))}</b>kg`).join(" · ")}</p>
       <p>${nx
-        ? `다음 주(${nx.cycle}주차 · ${+nx.from.slice(5,7)}/${+nx.from.slice(8)} 월) —
+        ? `다음 주(${nx.cycle}주차 · ${+nx.from.slice(5,7)}/${+nx.from.slice(8)} ${DOWK(nx.from)}) —
            ${keys.map(k=>`${esc(LIFT[k].ko)} ${fmt(workWeight(k,nx.cycle))}`).join(" · ")}kg`
         : `${WLAST}주차가 표의 마지막이다 — 여기서부터는 중량이 아니라 더블 프로그레션으로 넘긴다`}</p>
       ${eff>xlCycle()
@@ -1680,14 +1682,13 @@ function backCalHTML(){
   }
 
   const cells=[];
-  const MON = d => (d.getDay()+6)%7;          /* 0 = 월 … 6 = 일 */
-  for(let i=0;i<MON(first);i++) cells.push(`<div class="cal-cell pad"></div>`);
+  const COL = d => (d.getDay()+1)%7;          /* 0 = 토 … 6 = 금 — 가로 한 줄이 훈련 한 주 */
+  for(let i=0;i<COL(first);i++) cells.push(`<div class="cal-cell pad"></div>`);
   for(let dn=1;dn<=last.getDate();dn++){
     const d=new Date(ym.y,ym.m,dn), key=ymd(d), dow=d.getDay(), w=backWeekOf(key);
     const fix=FIX[dow], acc=ACC[dow]||"";
-    /* 주차는 줄 첫 칸(월)과 줄 끝의 토 · 일에 적는다. 주는 월요일에 넘어가지만
-       훈련 주는 토요일에 출발하므로 둘 다 보여야 '지금 몇 주차'가 안 헷갈린다 */
-    const badge = w && (dow===1||dow===6||dow===0 ? `${w.wk}주차` : "");
+    /* 주차는 줄 첫 칸(토)에 적는다 — 주차가 토요일에 넘어가므로 한 줄이 한 주다 */
+    const badge = w && (dow===6 ? `${w.wk}주차` : "");
     cells.push(`<div class="cal-cell${w?"":" blank"}${key===tKey?" today":""}${fix?"":" rest"}${dow===0?" sun":""}"
       style="${acc?`--acc:${acc}`:""}">
       <b>${dn}</b>${w?`${fix
@@ -1715,14 +1716,14 @@ function backCalHTML(){
     return SLOTS.some(s=>g[s]) && !g["화"]; });
 
   return `<h2 class="daytitle">달력</h2>
-  <p class="daysub">복귀는 <b>주차</b>가 단위다. 달력은 월요일부터 시작하므로 <b>가로 한 줄이 한 주</b>이고,
-    훈련 주는 그 줄 끝의 <b>토요일에 출발해</b> 다음 줄 목요일에 끝난다. 쉬는 날은 금요일 하나다.
+  <p class="daysub">복귀는 <b>주차</b>가 단위다. 주차는 <b>토요일에 넘어가고</b> 달력도 토요일부터 시작하므로
+    <b>가로 한 줄이 훈련 한 주</b>다 — 토요일에 출발해 목요일에 끝나고, 줄 끝의 금요일이 휴식이다.
 <b>중량은 매주 조금씩</b> 오른다 — 스쿼트 · 데드 2~3kg · 벤치 1kg · 프레스는 격주 1kg.</p>
   ${head}
   <div class="cal-bar"><button id="cal-prev">‹</button>
     <h3>${ym.y}년 ${ym.m+1}월</h3>
     <button id="cal-today">오늘</button><button id="cal-next">›</button></div>
-  <div class="cal-grid">${[..."월화수목금토일"].map((w,i)=>`<div class="cal-dow${i===6?" sun":""}">${w}</div>`).join("")}
+  <div class="cal-grid">${[..."토일월화수목금"].map((w,i)=>`<div class="cal-dow${i===1?" sun":""}">${w}</div>`).join("")}
     ${cells.join("")}</div>
   <div class="cal-key"><span><i style="background:var(--sq)"></i>토 — 스쿼트</span>
     <span><i style="background:var(--bp)"></i>월 — 벤치</span>

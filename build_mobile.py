@@ -648,10 +648,10 @@ def parse_back_plan(wb):
 
 
 def parse_prep(wb):
-    """생수배송 대비 두 시트(복귀_캐리 · 복귀_계단) → 앱 '배송' 탭. 세트 카운트 밖이다.
+    """생수배송 대비 두 시트(복귀_캐리 · 복귀_천국의계단) → 앱 '배송' 탭. 세트 카운트 밖이다.
 
     표는 머리글 첫 칸('항목' · '요일' · '주차')으로 찾는다 — 행 번호를 박지 않는다."""
-    if "복귀_캐리" not in wb.sheetnames or "복귀_계단" not in wb.sheetnames:
+    if "복귀_캐리" not in wb.sheetnames or "복귀_천국의계단" not in wb.sheetnames:
         return None
 
     def table(ws, head, cols, start=1):
@@ -668,7 +668,7 @@ def parse_prep(wb):
     def iso(v):
         return v.strftime("%Y-%m-%d") if hasattr(v, "strftime") else s(v)
 
-    c, t = wb["복귀_캐리"], wb["복귀_계단"]
+    c, t = wb["복귀_캐리"], wb["복귀_천국의계단"]
     rules, _ = table(c, "항목", (1, 2, 6))
     prog, _ = table(c, "주차", (1, 2, 3, 4, 5, 6))
     # 진행표 바로 밑 '· …' 주석 줄은 빈 줄 없이 붙어 있어 표에 딸려 들어온다
@@ -1884,7 +1884,7 @@ function backPlanHTML(){
   <tr><td style="font-weight:800">합계</td><td colspan="3"></td><td class="num" style="font-weight:800">${p.total}</td></tr>
   </tbody></table>${notesHTML(p.notes)}`;
 }
-/* 생수배송 대비 — 복귀_캐리 · 복귀_계단. 주차는 진행표 1주차 토요일부터 날짜로 센다 */
+/* 생수배송 대비 — 복귀_캐리 · 복귀_천국의계단. 주차는 진행표 1주차 토요일부터 날짜로 센다 */
 function prepHTML(){
   const P=D.prep, C=P.carry, S=P.stairs, now=new Date();
   const start=C.prog.length?ymdParse(C.prog[0][1]):now;
@@ -1907,7 +1907,7 @@ function prepHTML(){
     <td class="num" style="color:var(--mute)">${fmt(r[3])}</td><td class="num">${esc(r[4])||"—"}</td><td class="wrap">${esc(r[5])}</td></tr>`).join("")}
   </tbody></table>${C.foot?`<p class="daysub">${esc(C.foot)}</p>`:""}
   <table class="tbl"><tbody>${C.rules.map(r=>`<tr><td>${esc(r[0])}</td><td class="wrap" style="color:var(--ink)">${esc(r[1])}<br><span style="color:var(--mute)">${esc(r[2])}</span></td></tr>`).join("")}</tbody></table>
-  <h5 style="font-size:13px;font-weight:800;margin:22px 0 4px">계단 — 천국의 계단 + 덤벨</h5><p class="daysub">${esc(S.sub)}</p>
+  <h5 style="font-size:13px;font-weight:800;margin:22px 0 4px">천국의 계단 + 덤벨</h5><p class="daysub">${esc(S.sub)}</p>
   <table class="tbl"><thead><tr><th>주차</th><th>한 손</th><th>메인 (토·수)</th><th>짧은 날</th><th>주간 분</th></tr></thead><tbody>
   ${S.ramp.map(r=>`<tr${r[0]===Math.min(wk,S.ramp.length)?' style="background:var(--surface)"':""}><td>${r[0]}</td><td class="num">${esc(r[1])}</td>
     <td class="num">${r[2]}분 × ${r[3]}</td><td class="num">${r[4]}분 × ${r[5]}</td><td class="num" style="font-weight:800">${r[8]}</td></tr>`).join("")}

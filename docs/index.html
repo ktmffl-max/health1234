@@ -936,6 +936,25 @@ function backPlanHTML(){
   </tbody></table>${notesHTML(p.notes)}`;
 }
 /* 생수배송 대비 — 복귀_캐리 · 복귀_천국의계단. 주차는 진행표 1주차 토요일부터 날짜로 센다 */
+/* 캐리 진행표 실제 무게 · 메모 — 폰에서 적는 칸. 증량 기록(wk-log)과 같은 규칙:
+   엑셀 E·F열과 같아지면 지운다(옮겨 적었다는 뜻), 빈 값으로 고치면 엑셀 값으로 돌아간다 */
+const PGK="wk-prep";
+let PLOG={};
+try{ const o=JSON.parse(localStorage.getItem(PGK)||"null"); if(o&&typeof o==="object") PLOG=o; }catch(e){}
+const pXl=(w,f)=>{ const r=D.prep&&D.prep.carry.prog.find(x=>x[0]===+w); return r?String(r[f==="w"?4:5]||""):""; };
+function savePLog(){ try{ localStorage.setItem(PGK,JSON.stringify(PLOG)); }catch(e){} }
+(function(){ let ch=false;
+  for(const w in PLOG){ for(const f in PLOG[w]) if(PLOG[w][f]===pXl(w,f)){ delete PLOG[w][f]; ch=true; }
+    if(!Object.keys(PLOG[w]).length){ delete PLOG[w]; ch=true; } }
+  if(ch) savePLog(); })();
+const pVal=(w,f)=>{ const l=PLOG[w]&&PLOG[w][f]; return l!==undefined?l:pXl(w,f); };
+function setPLog(w,f,v){
+  v=String(v==null?"":v).trim().replace(/kg$/i,"");
+  if(!PLOG[w]) PLOG[w]={};
+  if(v===pXl(w,f)) delete PLOG[w][f]; else PLOG[w][f]=v;
+  if(!Object.keys(PLOG[w]).length) delete PLOG[w];
+  savePLog();
+}
 /* 오늘 할 것 — 표 · 타이머가 같은 값을 쓴다. 타이머에는 종목 두 개짜리 세션으로 넘긴다
    (캐리 40초 × 4 · 휴식 120초 → 계단 N분 × M · 휴식 60초). 캐리 마지막 휴식이 계단으로 넘어가는 시간이다 */
 function prepToday(){
@@ -947,21 +966,27 @@ function prepToday(){
   const main=kind.startsWith("메인"), off=!kind||kind.startsWith("없음");
   const cr=C.prog.find(r=>r[0]===wk)||C.prog[C.prog.length-1];
   const sr=S.ramp.find(r=>r[0]===Math.min(wk,S.ramp.length))||S.ramp[S.ramp.length-1];
-  const ex=[];
-  if(!off&&main&&cr) ex.push({name:"파머스 워크",mg:"캐리",w:String(cr[2]),r:"",s:4,wk:40,rt:120,drop:0});
-  if(!off&&sr) ex.push({name:"천국의 계단",mg:"계단",w:String(sr[1]),r:"",
-                         s:main?sr[3]:sr[5],wk:(main?sr[2]:sr[4])*60,rt:60,drop:0});
-  return {wk,dow,day,main,off,cr,sr,d:{t:"생수배송 대비 · "+dow,ex}};
+  const carry=cr?{name:"파머스 워크",mg:"캐리",w:pVal(cr[0],"w")||String(cr[2]),r:"",s:4,wk:40,rt:120,drop:0}:null;
+  /* 쉬는 날에 계단만 따로 돌리면 짧은 날 분량이다 */
+  const stairs=sr?{name:"천국의 계단",mg:"계단",w:String(sr[1]),r:"",
+                   s:main?sr[3]:sr[5],wk:(main?sr[2]:sr[4])*60,rt:60,drop:0}:null;
+  const ex=off?[]:[main&&carry,stairs].filter(Boolean);
+  const one=e=>e?{t:"생수배송 대비 · "+e.name,ex:[e]}:null;
+  return {wk,dow,day,main,off,cr,sr,d:{t:"생수배송 대비 · "+dow,ex},carry:one(carry),stairs:one(stairs)};
 }
 function prepHTML(){
   const P=D.prep, C=P.carry, S=P.stairs;
-  const {wk,dow,day,main,off,cr,sr,d}=prepToday();
+  const T=prepToday(), {wk,dow,day,main,off,cr,sr,d}=T;
   const today = off ? `<b>오늘(${dow}) · 쉬는 날</b><span>${esc(day?day[2]:"")}</span>`
     : `<b>오늘(${dow}) · ${wk}주차</b><span>${main&&cr?`캐리 한 손 ${fmt(cr[2])}kg · 40초 × 4 (휴식 120초) → `:""}계단 ${
         main?`${sr[2]}분 × ${sr[3]}`:`${sr[4]}분 × ${sr[5]}`} · 덤벨 한 손 ${esc(sr[1])}kg (휴식 60초)</span>`;
-  const last=d.ex[d.ex.length-1], mins=Math.round((d.ex.reduce((a,e)=>a+e.s*(e.wk+e.rt),0)-(last?last.rt:0))/60);   /* 세션 끝 휴식은 타이머도 뺀다 */
-  const go = off ? "" : `<button class="day-go" style="margin-top:12px" data-prep-tm="">&#9654; 타이머 시작 · 약 ${mins}분</button>${
-    d.ex.length>1?`<button class="day-go" data-prep-tm="천국의 계단" style="background:var(--surface);color:var(--ink)">&#9654; 계단부터</button>`:""}`;
+  /* 세션 끝 휴식은 타이머도 빼므로 마지막 종목의 휴식 하나를 덜어 센다 */
+  const mins=x=>{ const L=x.ex[x.ex.length-1]; return Math.round((x.ex.reduce((a,e)=>a+e.s*(e.wk+e.rt),0)-(L?L.rt:0))/60); };
+  const sub=`background:var(--surface);color:var(--ink);flex:1;margin:0`;
+  const part=(k,x,lab)=>x?`<button class="day-go" style="${sub}" data-prep-tm="${k}">&#9654; ${lab}만<i style="display:block">${
+    x.ex[0].s} × ${x.ex[0].wk>=60?x.ex[0].wk/60+"분":x.ex[0].wk+"초"} · 약 ${mins(x)}분</i></button>`:"";
+  const go = (off ? "" : `<button class="day-go" style="margin-top:12px" data-prep-tm="today">&#9654; 오늘 세션 · 약 ${mins(d)}분</button>`)
+    + `<div style="display:flex;gap:8px;margin:${off?"12px":"0"} 0 15px">${part("carry",T.carry,"캐리")}${part("stairs",T.stairs,"계단")}</div>`;
   const md=t=>{ const d=ymdParse(t); return `${d.getMonth()+1}/${d.getDate()}`; };
   return `<h2 class="daytitle">생수배송 대비</h2><p class="daysub">목표: 한 손 36kg(2L 묶음 3팩) 컨트롤 · 세트 합계 밖</p>
   <div class="rampbar">${today}</div>${go}
@@ -969,8 +994,11 @@ function prepHTML(){
   <table class="tbl"><thead><tr><th>주차</th><th>시작</th><th>한 손</th><th>양손</th><th>실제</th><th class="wrap">메모</th></tr></thead><tbody>
   ${C.prog.map(r=>`<tr${r[0]===wk?' style="background:var(--surface)"':""}><td>${r[0]}${r[0]===wk?" · 지금":""}</td>
     <td class="num">${md(r[1])}</td><td class="num" style="font-weight:800;color:var(--ink)">${fmt(r[2])}</td>
-    <td class="num" style="color:var(--mute)">${fmt(r[3])}</td><td class="num">${esc(r[4])||"—"}</td><td class="wrap">${esc(r[5])}</td></tr>`).join("")}
+    <td class="num" style="color:var(--mute)">${fmt(r[3])}</td>
+    <td class="num"><input class="log-in" style="width:58px" type="text" inputmode="decimal" data-prepf="w" data-prepw="${r[0]}" value="${escAttr(pVal(r[0],"w"))}" placeholder="—"></td>
+    <td class="wrap"><input class="log-in wide" style="width:100%;min-width:70px" type="text" data-prepf="m" data-prepw="${r[0]}" value="${escAttr(pVal(r[0],"m"))}" placeholder="—"></td></tr>`).join("")}
   </tbody></table>${C.foot?`<p class="daysub">${esc(C.foot)}</p>`:""}
+  ${Object.keys(PLOG).length?`<button class="day-go" id="prep-copy" style="background:var(--surface);color:var(--ink)">엑셀에 옮길 값 복사 (복귀_캐리 E·F열)</button>`:""}
   <table class="tbl"><tbody>${C.rules.map(r=>`<tr><td>${esc(r[0])}</td><td class="wrap" style="color:var(--ink)">${esc(r[1])}<br><span style="color:var(--mute)">${esc(r[2])}</span></td></tr>`).join("")}</tbody></table>
   <h5 style="font-size:13px;font-weight:800;margin:22px 0 4px">천국의 계단 + 덤벨</h5><p class="daysub">${esc(S.sub)}</p>
   <table class="tbl"><thead><tr><th>주차</th><th>한 손</th><th>메인 (토·수)</th><th>짧은 날</th><th>주간 분</th></tr></thead><tbody>
@@ -1588,7 +1616,16 @@ function bindEdits(){
     const d=(mode==="home"?D.home:D.back)[tab];
     if(d&&!d.rest) tmStart(d,el.dataset.tm||null); }; });
   document.querySelectorAll("[data-prep-tm]").forEach(el=>{ el.onclick=()=>{
-    const t=prepToday(); if(t.d.ex.length) tmStart(t.d,el.dataset.prepTm||null); }; });
+    const t=prepToday(), k=el.dataset.prepTm, x=k==="today"?t.d:t[k];
+    if(x&&x.ex.length) tmStart(x,null); }; });
+  document.querySelectorAll("[data-prepf]").forEach(el=>{
+    el.onchange=()=>{ setPLog(el.dataset.prepw,el.dataset.prepf,el.value); render(); };
+    el.onkeydown=ev=>{ if(ev.key==="Enter") el.blur(); }; });
+  const pc=document.getElementById("prep-copy");
+  if(pc) pc.onclick=()=>{
+    const text=Object.keys(PLOG).sort((a,b)=>a-b).map(w=>`${w}주차\t${pVal(w,"w")}\t${pVal(w,"m")}`).join("\n");
+    const ok=()=>{ pc.textContent="복사됨"; setTimeout(()=>{ pc.textContent="엑셀에 옮길 값 복사 (복귀_캐리 E·F열)"; },1500); };
+    try{ navigator.clipboard.writeText(text).then(ok,()=>{ pc.textContent="복사 실패"; }); }catch(e){ pc.textContent="복사 실패"; } };
   /* 증량 기록 — 달성/미달 토글, 미달 반복수, 피로 0~5, 관절·메모 */
   document.querySelectorAll("[data-logv]:not([data-logf])").forEach(b=>{ b.onclick=()=>{
     const seg=b.closest(".seg"), k=seg.dataset.logk, c=seg.dataset.logc, v=b.dataset.logv;

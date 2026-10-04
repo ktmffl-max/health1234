@@ -1885,7 +1885,9 @@ function backPlanHTML(){
   </tbody></table>${notesHTML(p.notes)}`;
 }
 /* 생수배송 대비 — 복귀_캐리 · 복귀_천국의계단. 주차는 진행표 1주차 토요일부터 날짜로 센다 */
-function prepHTML(){
+/* 오늘 할 것 — 표 · 타이머가 같은 값을 쓴다. 타이머에는 종목 두 개짜리 세션으로 넘긴다
+   (캐리 40초 × 4 · 휴식 120초 → 계단 N분 × M · 휴식 60초). 캐리 마지막 휴식이 계단으로 넘어가는 시간이다 */
+function prepToday(){
   const P=D.prep, C=P.carry, S=P.stairs, now=new Date();
   const start=C.prog.length?ymdParse(C.prog[0][1]):now;
   const wk=Math.max(1,Math.floor((ymdParse(ymd(now))-start)/864e5/7)+1);
@@ -1894,12 +1896,24 @@ function prepHTML(){
   const main=kind.startsWith("메인"), off=!kind||kind.startsWith("없음");
   const cr=C.prog.find(r=>r[0]===wk)||C.prog[C.prog.length-1];
   const sr=S.ramp.find(r=>r[0]===Math.min(wk,S.ramp.length))||S.ramp[S.ramp.length-1];
+  const ex=[];
+  if(!off&&main&&cr) ex.push({name:"파머스 워크",mg:"캐리",w:String(cr[2]),r:"",s:4,wk:40,rt:120,drop:0});
+  if(!off&&sr) ex.push({name:"천국의 계단",mg:"계단",w:String(sr[1]),r:"",
+                         s:main?sr[3]:sr[5],wk:(main?sr[2]:sr[4])*60,rt:60,drop:0});
+  return {wk,dow,day,main,off,cr,sr,d:{t:"생수배송 대비 · "+dow,ex}};
+}
+function prepHTML(){
+  const P=D.prep, C=P.carry, S=P.stairs;
+  const {wk,dow,day,main,off,cr,sr,d}=prepToday();
   const today = off ? `<b>오늘(${dow}) · 쉬는 날</b><span>${esc(day?day[2]:"")}</span>`
-    : `<b>오늘(${dow}) · ${wk}주차</b><span>${main&&cr?`캐리 한 손 ${fmt(cr[2])}kg · 30~40초 × 4 (휴식 120초) → `:""}계단 ${
+    : `<b>오늘(${dow}) · ${wk}주차</b><span>${main&&cr?`캐리 한 손 ${fmt(cr[2])}kg · 40초 × 4 (휴식 120초) → `:""}계단 ${
         main?`${sr[2]}분 × ${sr[3]}`:`${sr[4]}분 × ${sr[5]}`} · 덤벨 한 손 ${esc(sr[1])}kg (휴식 60초)</span>`;
+  const last=d.ex[d.ex.length-1], mins=Math.round((d.ex.reduce((a,e)=>a+e.s*(e.wk+e.rt),0)-(last?last.rt:0))/60);   /* 세션 끝 휴식은 타이머도 뺀다 */
+  const go = off ? "" : `<button class="day-go" style="margin-top:12px" data-prep-tm="">&#9654; 타이머 시작 · 약 ${mins}분</button>${
+    d.ex.length>1?`<button class="day-go" data-prep-tm="천국의 계단" style="background:var(--surface);color:var(--ink)">&#9654; 계단부터</button>`:""}`;
   const md=t=>{ const d=ymdParse(t); return `${d.getMonth()+1}/${d.getDate()}`; };
   return `<h2 class="daytitle">생수배송 대비</h2><p class="daysub">목표: 한 손 36kg(2L 묶음 3팩) 컨트롤 · 세트 합계 밖</p>
-  <div class="rampbar">${today}</div>
+  <div class="rampbar">${today}</div>${go}
   <h5 style="font-size:13px;font-weight:800;margin:22px 0 4px">캐리 — 무겁게 들고 걷기</h5><p class="daysub">${esc(C.sub)}</p>
   <table class="tbl"><thead><tr><th>주차</th><th>시작</th><th>한 손</th><th>양손</th><th>실제</th><th class="wrap">메모</th></tr></thead><tbody>
   ${C.prog.map(r=>`<tr${r[0]===wk?' style="background:var(--surface)"':""}><td>${r[0]}${r[0]===wk?" · 지금":""}</td>
@@ -2386,7 +2400,7 @@ function tmMeta(e){
   const key=tmKey(e), p=key.split("|");
   const ov = p[0]==="lift" ? OV.lifts[p[1]] : OV.ex[p.slice(1).join("|")];
   const w=`<span class="tm-w${ov?" edited":""}" data-tmw="${escAttr(key)}">${esc(tmW(e))}</span>`;
-  return [esc(e.mg), w, esc(e.r)+"회"].filter(Boolean).join(" · ");
+  return [esc(e.mg), w, e.r?esc(e.r)+"회":""].filter(Boolean).join(" · ");
 }
 function tmEditW(el){
   const p=el.dataset.tmw.split("|");
@@ -2522,6 +2536,8 @@ function bindEdits(){
   document.querySelectorAll("[data-tm]").forEach(el=>{ el.onclick=()=>{
     const d=(mode==="home"?D.home:D.back)[tab];
     if(d&&!d.rest) tmStart(d,el.dataset.tm||null); }; });
+  document.querySelectorAll("[data-prep-tm]").forEach(el=>{ el.onclick=()=>{
+    const t=prepToday(); if(t.d.ex.length) tmStart(t.d,el.dataset.prepTm||null); }; });
   /* 증량 기록 — 달성/미달 토글, 미달 반복수, 피로 0~5, 관절·메모 */
   document.querySelectorAll("[data-logv]:not([data-logf])").forEach(b=>{ b.onclick=()=>{
     const seg=b.closest(".seg"), k=seg.dataset.logk, c=seg.dataset.logc, v=b.dataset.logv;

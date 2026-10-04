@@ -730,15 +730,17 @@ def parse_back_anchor(wb):
     그때는 앱이 복귀 달력 대신 '기준일을 채우라'는 안내를 띄운다."""
     ws = wb["시작중량_설정"]
     want = {"프로그램 시작일": "date", "주차 기준일": "cdate",
-            "기준 주차": "cycle", "증량 전진(주)": "step", "디로드 주차": "deload"}
+            "기준 주차": "cycle", "증량 전진(주)": "step", "디로드 시작일": "deload"}
     got = {}
     for r in range(1, ws.max_row + 1):
         key = want.get(s(ws.cell(r, 1).value))
         if not key:
             continue
         v = ws.cell(r, 3).value
-        if key == "deload":     # '13' 또는 '13, 20' — 프로그램 주차 목록
-            got[key] = [int(x) for x in re.findall(r"\d+", s(v))]
+        if key == "deload":     # 날짜 한 칸, 또는 '2026-10-17, 2026-12-26' 텍스트 — 디로드 주가 시작되는 토요일
+            got[key] = ([v.strftime("%Y-%m-%d")] if hasattr(v, "strftime") else
+                        ["%04d-%02d-%02d" % tuple(map(int, m))
+                         for m in re.findall(r"(\d{4})[-./](\d{1,2})[-./](\d{1,2})", s(v))])
             continue
         got[key] = v.strftime("%Y-%m-%d") if hasattr(v, "strftime") else int(num(v))
     if not got.get("date") or not got.get("cdate") or not got.get("cycle"):
@@ -1583,21 +1585,25 @@ const dayAdd = (t,n) => { const d=ymdParse(t); d.setDate(d.getDate()+n); return 
 /* 주차와 사이클은 기준이 다르다 — 주차는 프로그램 시작일에서 세는 숫자일 뿐이고,
    사이클은 중량이 매달린 숫자라 사이클 기준일에서 따로 센다. 하나로 묶으면
    주차를 맞추려다 중량까지 따라 움직인다. BSHIFT(미루기)는 사이클에만 건다. */
-/* 디로드 주 — 엑셀 시작중량_설정 '디로드 주차'(프로그램 주차 목록). 그 주는 중량이 한 칸 멈추고
-   (미루기와 같은 효과 · 자동), 세트가 절반으로 보인다. 기준 주차보다 앞선 디로드는 이미
-   기준일에 반영돼 있으므로 기준 주차 뒤의 것만 센다. 증량 전진이 1주일 때만 멈춤을 건다 */
-const DL = (BA&&BA.deload)||[];
-const BWKC = BA ? Math.floor(dayGap(BA.cdate,BA.date)/7)+1 : 0;
-const dlPassed = wk => DL.filter(d=>d>BWKC&&d<=wk).length;
+/* 디로드 주 — 엑셀 시작중량_설정 '디로드 시작일'(토요일 날짜 목록). 그 주는 주차로 세지 않는다
+   (사용자 지정 2026-10-04 — '주차로 새지 말고 디로드 주라고만'). 주차 · 중량 칸 · 엑셀 C4가
+   전부 그 주에 멈추므로 세 숫자가 디로드 뒤에도 같이 간다. 세트는 절반으로 보인다.
+   주차 기준일보다 앞선 디로드는 기준일에 이미 반영돼 있으므로 중량 계산에서는 그 뒤의 것만 뺀다 */
+const DLD = ((BA&&BA.deload)||[]).slice().sort();
 function backWeekOf(t){
   if(!BA) return null;
   const n=dayGap(t,BA.date);
   if(n<0) return null;
-  const wk=Math.floor(n/7)+1;
+  const raw=Math.floor(n/7)+1, from=dayAdd(BA.date,(raw-1)*7);
+  const deload=DLD.includes(from);
+  /* 디로드 주는 지난주 번호를 지닌 채 '디로드 주'로만 표시된다 */
+  const wk=raw-DLD.filter(d=>d<from).length-(deload?1:0);
   const cn=dayGap(t,BA.cdate)-BSHIFT*7;
-  const cyc=clampW(BA.cycle+Math.floor(cn/(BA.step*7))-(BA.step===1?dlPassed(wk):0));
-  return {wk, cycle: cyc, from: dayAdd(BA.date,(wk-1)*7), deload: DL.includes(wk)};
+  const cut=BA.step===1 ? DLD.filter(d=>d>BA.cdate&&d<=from).length : 0;
+  const cyc=clampW(BA.cycle+Math.floor(cn/(BA.step*7))-cut);
+  return {wk, cycle: cyc, from, deload};
 }
+const wkLabel = w => w.deload ? "디로드 주" : w.wk+"주차";
 const bToday = () => BA ? backWeekOf(ymd(new Date())) : null;
 /* 지금 보는 화면이 '이번 주 디로드'인가 — 화살표로 다른 주를 넘겨 보면 평소 세트로 보인다 */
 const dlOn = () => { if(mode!=="back") return false; const b=bToday();
@@ -1611,7 +1617,7 @@ const effSets = (e,w) => rampOn() ? setsOf(e,w) : dlOn() ? dlSets(e) : e.s;
    '다음'이 과거를 가리키지 않는다. 마지막 사이클이면 null */
 function backNextAfter(eff){
   /* 주마다 훑는다 — 미루기 · 디로드로 사이클이 멈추는 주가 있어 산술로 못 푼다 */
-  for(let k=0; k<=(WEEKS+DL.length+4)*Math.max(1,BA.step); k++){
+  for(let k=0; k<=(WEEKS+DLD.length+4)*Math.max(1,BA.step); k++){
     const from=dayAdd(BA.cdate,k*7), w=backWeekOf(from);
     if(w&&w.cycle>eff) return {cycle:w.cycle, from};
   }
@@ -1729,14 +1735,14 @@ function backCalHTML(){
     const up = keys.map(k=>{
       const d=workWeight(k,eff)-workWeight(k,Math.max(WBASE,eff-1));
       return (d>0?"+":"")+fmt(d); }).join(" · ");
-    head=`<div class="cal-now"><b>복귀 ${cur.wk}주차 · ${eff}사이클</b>
+    head=`<div class="cal-now"><b>복귀 ${wkLabel(cur)} · ${eff}사이클</b>
       <p class="num">${+wkFrom.slice(5,7)}/${+wkFrom.slice(8)}(${DOWK(wkFrom)}) ~ ${+wkTo.slice(5,7)}/${+wkTo.slice(8)}(${DOWK(wkTo)})
         ${ahead?` · <b>엑셀을 먼저 올림</b>`:""}</p>
-      ${cur.deload?`<p><b>디로드 주</b> — 세트 절반 · 중량은 지난주 그대로 · 데드 건너뜀. 다음 주에 다시 오른다</p>`
+      ${cur.deload?`<p><b>디로드 주</b> — 주차로 세지 않는다. 세트 절반 · 중량은 지난주 그대로 · 데드 건너뜀 · 엑셀 C4도 그대로. 다음 주가 ${cur.wk+1}주차다</p>`
         :`<p class="num" style="color:var(--mute)">지난주 대비 ${up}kg</p>`}
       <p>${keys.map(k=>`${esc(LIFT[k].ko)} <b class="num">${fmt(workWeight(k,eff))}</b>kg`).join(" · ")}</p>
       <p>${nx
-        ? `다음 주(${+nx.from.slice(5,7)}/${+nx.from.slice(8)} ${DOWK(nx.from)} · 중량 ${nx.cycle}주차 칸) —
+        ? `다음 주(${nx.cycle}주차 · ${+nx.from.slice(5,7)}/${+nx.from.slice(8)} ${DOWK(nx.from)}) —
            ${keys.map(k=>`${esc(LIFT[k].ko)} ${fmt(workWeight(k,nx.cycle))}`).join(" · ")}kg`
         : `${WLAST}주차가 표의 마지막이다 — 여기서부터는 중량이 아니라 더블 프로그레션으로 넘긴다`}</p>
       ${eff>xlCycle()
@@ -1761,7 +1767,7 @@ function backCalHTML(){
     const d=new Date(ym.y,ym.m,dn), key=ymd(d), dow=d.getDay(), w=backWeekOf(key);
     const fix=FIX[dow], acc=ACC[dow]||"";
     /* 주차는 줄 첫 칸(토)에 적는다 — 주차가 토요일에 넘어가므로 한 줄이 한 주다 */
-    const badge = w && (dow===6 ? `${w.wk}주차${w.deload?" · 디로드":""}` : "");
+    const badge = w && (dow===6 ? (w.deload?"디로드":`${w.wk}주차`) : "");
     cells.push(`<div class="cal-cell${w?"":" blank"}${key===tKey?" today":""}${fix?"":" rest"}${dow===0?" sun":""}"
       style="${acc?`--acc:${acc}`:""}">
       <b>${dn}</b>${w?`${fix
@@ -1772,20 +1778,21 @@ function backCalHTML(){
 
   /* 주별 세션 체크 — 6회 중 몇 했나. 화요일을 2주 연속 뺐는지가 여기서 보인다 */
   const wks=[];
-  if(cur) for(let i=Math.max(1,cur.wk-5);i<=cur.wk;i++){
-    const from=dayAdd(BA.date,(i-1)*7);
-    const w=backWeekOf(from);
-    const cyc=Math.max(w?w.cycle:BA.cycle, i===cur.wk?eff:0);
+  if(cur) for(let j=5;j>=0;j--){
+    const from=dayAdd(cur.from,-7*j);
+    const w=backWeekOf(from); if(!w) continue;
+    const now=j===0;
+    const cyc=Math.max(w.cycle, now?eff:0);
     const got=BSESS[from]||{}, n=SLOTS.filter(s=>got[s]).length;
-    wks.push(`<div class="log-row"${i===cur.wk?' style="--accent:var(--ink)"':""}>
-      <div class="log-l"><b>${i}주차${i===cur.wk?" · 이번 주":""}</b>
+    wks.push(`<div class="log-row"${now?' style="--accent:var(--ink)"':""}>
+      <div class="log-l"><b>${wkLabel(w)}${now?" · 이번 주":""}</b>
         <span class="num">${+from.slice(5,7)}/${+from.slice(8)} ~ ${(x=>`${+x.slice(5,7)}/${+x.slice(8)}`)(dayAdd(from,6))}
           · ${cyc}주차 중량 · ${n}/6회${!got["화"]&&n>0?" · 화요일 빠짐":""}</span></div>
       <div class="seg">${SLOTS.map(s=>`<button class="${got[s]?"on ok":""}" data-bsess="${from}" data-bslot="${s}">${s}</button>`).join("")}</div>
     </div>`);
   }
-  const miss=wks.length>1 && cur && [cur.wk,cur.wk-1].every(i=>{
-    const f=dayAdd(BA.date,BSHIFT*7+(i-1)*7), g=BSESS[f]||{};
+  const miss=wks.length>1 && cur && [0,1].every(j=>{
+    const f=dayAdd(cur.from,-7*j), g=BSESS[f]||{};
     return SLOTS.some(s=>g[s]) && !g["화"]; });
 
   return `<h2 class="daytitle">달력</h2>
@@ -1809,14 +1816,14 @@ function backCalHTML(){
 }
 /* 복귀 주차 보정 — 디로드나 통째로 쉰 주를 뒤로 미룬다. 이 폰에만 남는다 */
 function backFix(cur){
-  return `<details class="cal-fix"><summary>${cur?`주차가 안 맞으면 — 지금 ${cur.wk}주차`:"기준일 보정"}</summary>
+  return `<details class="cal-fix"><summary>${cur?`주차가 안 맞으면 — 지금 ${wkLabel(cur)}`:"기준일 보정"}</summary>
     <div class="cal-days"><button data-bshift="1">한 주 미루기</button>
       <button data-bshift="-1">한 주 당기기</button>
       ${BSHIFT?`<button data-bshift="0">엑셀 기준으로 (${BSHIFT>0?"+":""}${BSHIFT}주 보정 중)</button>`:""}</div>
-    <p class="footnote"><b>디로드 주에는 반드시 누른다</b> — 세트가 절반인 주에 새 중량을 맞이하면
-      그 중량을 제대로 만나지 못하고, 데드는 디로드에 건너뛰므로 한 번도 안 들고 다음 칸으로 넘어간다.
-      통째로 쉰 주도 같다. 주차 표시는 그대로 두고 사이클만 한 주 늦춘다 —
-      영구히 맞추려면 엑셀 '시작중량_설정'의 <b>사이클 기준일</b>을 한 주 뒤로 옮긴다.</p></details>`;
+    <p class="footnote"><b>계획한 디로드에는 누르지 않는다</b> — 엑셀 '시작중량_설정'의 <b>디로드 시작일</b>에
+      적은 주는 앱이 알아서 멈춘다(주차로 세지 않고 '디로드 주'로 표시). 여기서 또 누르면 두 번 밀린다.
+      누르는 것은 계획 밖에 <b>통째로 쉰 주</b>뿐이다 — 주차 표시는 그대로 두고 중량만 한 주 늦춘다.
+      영구히 맞추려면 '시작중량_설정'의 <b>주차 기준일</b>을 한 주 뒤로 옮긴다.</p></details>`;
 }
 function anchorFix(cur){
   return `<details class="cal-fix"><summary>${cur?"주기가 밀렸다면 — 오늘을 다른 일차로":"오늘은 몇 일차인가"}</summary>
@@ -1941,9 +1948,9 @@ function prepToday(){
   const main=kind.startsWith("메인"), off=!kind||kind.startsWith("없음");
   const cr=C.prog.find(r=>r[0]===wk)||C.prog[C.prog.length-1];
   /* 디로드 주에는 계단도 한 주 멈춘다 — 그 주는 지난주 분량. 캐리는 엑셀 진행표가 이미 멈춰 둔다 */
-  const bt=bToday(), b0=C.prog.length&&BA?backWeekOf(C.prog[0][1]):null;
-  const dlNow=!!(bt&&bt.deload);
-  const swk=Math.max(1,wk-(bt&&b0?DL.filter(x=>x>=b0.wk&&x<=bt.wk).length:0));
+  const bt=bToday(), dlNow=!!(bt&&bt.deload);
+  const p0=C.prog.length?C.prog[0][1]:ymd(now), tday=ymd(now);
+  const swk=Math.max(1,wk-DLD.filter(x=>x>=p0&&x<=tday).length);
   const sr=S.ramp.find(r=>r[0]===Math.min(swk,S.ramp.length))||S.ramp[S.ramp.length-1];
   const carry=cr?{name:"파머스 워크",mg:"캐리",w:pVal(cr[0],"w")||String(cr[2]),r:"",s:4,wk:40,rt:120,drop:0}:null;
   /* 쉬는 날에 계단만 따로 돌리면 짧은 날 분량이다 */
@@ -1957,7 +1964,7 @@ function prepHTML(){
   const P=D.prep, C=P.carry, S=P.stairs;
   const T=prepToday(), {wk,swk,dlNow,dow,day,main,off,cr,sr,d}=T;
   const today = off ? `<b>오늘(${dow}) · 쉬는 날</b><span>${esc(day?day[2]:"")}</span>`
-    : `<b>오늘(${dow}) · ${wk}주차${dlNow?" · 디로드 주 — 캐리 · 계단 무게와 분량 멈춤":""}</b><span>${main&&cr?`캐리 한 손 ${fmt(cr[2])}kg · 40초 × 4 (휴식 120초) → `:""}계단 ${
+    : `<b>오늘(${dow}) · ${dlNow?"디로드 주 — 캐리 · 계단 무게와 분량 멈춤":swk+"주차"}</b><span>${main&&cr?`캐리 한 손 ${fmt(cr[2])}kg · 40초 × 4 (휴식 120초) → `:""}계단 ${
         main?`${sr[2]}분 × ${sr[3]}`:`${sr[4]}분 × ${sr[5]}`} · 덤벨 한 손 ${esc(sr[1])}kg (휴식 60초)</span>`;
   /* 세션 끝 휴식은 타이머도 빼므로 마지막 종목의 휴식 하나를 덜어 센다 */
   const mins=x=>{ const L=x.ex[x.ex.length-1]; return Math.round((x.ex.reduce((a,e)=>a+e.s*(e.wk+e.rt),0)-(L?L.rt:0))/60); };
@@ -1971,7 +1978,7 @@ function prepHTML(){
   <div class="rampbar">${today}</div>${go}
   <h5 style="font-size:13px;font-weight:800;margin:22px 0 4px">캐리 — 무겁게 들고 걷기</h5><p class="daysub">${esc(C.sub)}</p>
   <table class="tbl"><thead><tr><th>주차</th><th>시작</th><th>한 손</th><th>양손</th><th>실제</th><th class="wrap">메모</th></tr></thead><tbody>
-  ${C.prog.map(r=>`<tr${r[0]===wk?' style="background:var(--surface)"':""}><td>${r[0]}${r[0]===wk?" · 지금":""}</td>
+  ${C.prog.map(r=>`<tr${r[0]===wk?' style="background:var(--surface)"':""}><td>${DLD.includes(r[1])?"디로드":r[0]-DLD.filter(x=>x>=C.prog[0][1]&&x<r[1]).length}${r[0]===wk?" · 지금":""}</td>
     <td class="num">${md(r[1])}</td><td class="num" style="font-weight:800;color:var(--ink)">${fmt(r[2])}</td>
     <td class="num" style="color:var(--mute)">${fmt(r[3])}</td>
     <td class="num"><input class="log-in" style="width:58px" type="text" inputmode="decimal" data-prepf="w" data-prepw="${r[0]}" value="${escAttr(pVal(r[0],"w"))}" placeholder="—"></td>
@@ -2642,7 +2649,8 @@ function render(){
      다른 것은 올리는 속도뿐이다(재택 10일 주기마다 · 복귀 매주 한 칸). */
   document.getElementById("weekbar").style.display = "flex";
   document.getElementById("wk-track").style.display = "flex";
-  document.getElementById("wk-num").textContent=week;
+  const wkn=document.getElementById("wk-num"), dlh=dlOn();
+  wkn.textContent=dlh?"디로드":week; wkn.style.fontSize=dlh?"18px":"";
   /* 큰 숫자는 중량 사이클이다. 볼륨이 그보다 앞서 있으면 여기서 같이 밝힌다 */
   document.getElementById("wk-of").textContent=`WEEK / ${WLAST}`
     + (mode==="back" ? (dlOn()?" · 디로드 주":" · 매주 한 칸")

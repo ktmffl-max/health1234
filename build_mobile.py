@@ -730,18 +730,22 @@ def parse_back_anchor(wb):
     그때는 앱이 복귀 달력 대신 '기준일을 채우라'는 안내를 띄운다."""
     ws = wb["시작중량_설정"]
     want = {"프로그램 시작일": "date", "주차 기준일": "cdate",
-            "기준 주차": "cycle", "증량 전진(주)": "step"}
+            "기준 주차": "cycle", "증량 전진(주)": "step", "디로드 주차": "deload"}
     got = {}
     for r in range(1, ws.max_row + 1):
         key = want.get(s(ws.cell(r, 1).value))
         if not key:
             continue
         v = ws.cell(r, 3).value
+        if key == "deload":     # '13' 또는 '13, 20' — 프로그램 주차 목록
+            got[key] = [int(x) for x in re.findall(r"\d+", s(v))]
+            continue
         got[key] = v.strftime("%Y-%m-%d") if hasattr(v, "strftime") else int(num(v))
     if not got.get("date") or not got.get("cdate") or not got.get("cycle"):
         return None
     return {"date": got["date"], "cdate": got["cdate"],
-            "cycle": got["cycle"], "step": got.get("step") or 2}
+            "cycle": got["cycle"], "step": got.get("step") or 2,
+            "deload": got.get("deload") or []}
 
 
 def parse_progress_notes(wb):
@@ -1428,6 +1432,9 @@ function liftCard(key,week,sets,name){
   const work=workWeight(key,week), rows=ramp(work);
   /* 본세트 수는 종목표 1번 행이 정한다 — 메인 리프트는 어느 주차에도 빠지지 않는다 */
   const ws=(sets==null?L.sets:sets);
+  if(ws===0) return `<section class="lift" style="--accent:${L.accent}"><div class="lift-top"><div class="lift-name">
+    <div class="eyebrow">MAIN LIFT · 디로드</div><h3>${esc(name||L.ko)}</h3>
+    <p class="num">이번 주는 건너뛴다 — 다음 주 ${fmt(workWeight(key,Math.min(WLAST,week+1)))}kg</p></div></div></section>`;
   const rp=rows.map(r=>`
     <div class="r-w ${r.w?'':'skip'}">${r.w?fmt(r.w)+'<span style="font-size:11px;color:var(--mute)"> kg</span>':'생략'}</div>
     <div class="r-x num">${r.reps}회</div><div class="r-x num">${r.sets}세트</div>`).join("");
@@ -1445,7 +1452,8 @@ function liftCard(key,week,sets,name){
       <div class="work r-w">${fmt(work)}<span style="font-size:11px;color:var(--mute)"> kg</span></div>
       <div class="work r-x num">5회</div><div class="work r-x num">${ws}세트</div>
     </div>
-    ${liftLogHTML(key,week)}</section>`;
+    ${dlOn()?`<div class="lift-log"><div class="lift-log-h">디로드 주 — 결과를 적지 않는다 <span>· 지난주와 같은 ${week}주차 칸이라 적으면 지난주 기록을 덮는다</span></div></div>`
+      :liftLogHTML(key,week)}</section>`;
 }
 /* 본세트 결과 한 줄 — 세션 끝나고 그 자리에서 적는다. 증량 탭의 카드와 같은 저장소다 */
 function liftLogHTML(key,week){
@@ -1481,7 +1489,7 @@ function exHTML(e,prefix,sets,timed){
       <div class="ex-n num">${e.n}</div>
       <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}</div></div>
       <div class="ex-p">${e.s===0 ? `<b class="hold-w">보류</b><span class="num">${esc(e.r)}</span>`
-        : `<b class="hold-w">${e.rw}주차 복귀</b><span class="num">설계 ${e.s} × ${esc(e.r)}</span>`}
+        : `<b class="hold-w">${dlOn()?"디로드 — 쉼":e.rw+"주차 복귀"}</b><span class="num">설계 ${e.s} × ${esc(e.r)}</span>`}
       </div></div></article>`;
   return `<article class="ex"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
@@ -1509,8 +1517,8 @@ function rampBar(all,S,total,done,week){
 function dayHTML(d,week){
   if(d.rest) return `<h2 class="daytitle">${esc(d.t)}</h2><p class="daysub">${esc(d.sub||"휴식일")}</p>`;
   const prefix=mode+"|"+tab;
-  const on=rampOn();
-  const S = e => on ? setsOf(e,week) : e.s;
+  const on=rampOn(), dl=dlOn();
+  const S = e => effSets(e,week);
   const all=allEx(d), done=all.reduce((a,e)=>a+S(e),0);
   /* 타이머가 실제로 걸 수 있는 종목 — 수행 초가 있어야 한다 */
   const timed = allEx(d).filter(e=>e.s!==0&&S(e)>0&&e.wk>0);
@@ -1526,7 +1534,9 @@ function dayHTML(d,week){
     : `<div class="grouphead">운동 구성</div>`+live(d.ex).map(one).join("");
   const holdBox = held.length ? `<details class="holdbox"><summary>보류 ${held.length}종목
     <i>· 세트 합계에서 빠짐</i></summary>${held.map(one).join("")}</details>` : "";
-  const bar = (on && done!==d.total) ? rampBar(all,S,d.total,done,week) : "";
+  const bar = dl ? `<div class="rampbar"><b>디로드 주 · ${done}세트 <span>/ 설계 ${d.total}</span></b>
+      <span>세트만 절반 — 중량은 지난주(${week}주차) 그대로. 데드는 건너뛰고, 이 주는 증량 기록을 적지 않는다</span></div>`
+    : (on && done!==d.total) ? rampBar(all,S,d.total,done,week) : "";
   /* 메인 리프트 카드의 본세트 수는 종목표에서 그 리프트가 붙은 행과 같은 값을 쓴다.
      복귀 토요일처럼 메인이 둘이면 카드도 둘이다 — 웜업 램프가 종목마다 따로 필요하다 */
   const cards = (d.mains||[]).map(m=>{
@@ -1573,22 +1583,37 @@ const dayAdd = (t,n) => { const d=ymdParse(t); d.setDate(d.getDate()+n); return 
 /* 주차와 사이클은 기준이 다르다 — 주차는 프로그램 시작일에서 세는 숫자일 뿐이고,
    사이클은 중량이 매달린 숫자라 사이클 기준일에서 따로 센다. 하나로 묶으면
    주차를 맞추려다 중량까지 따라 움직인다. BSHIFT(미루기)는 사이클에만 건다. */
+/* 디로드 주 — 엑셀 시작중량_설정 '디로드 주차'(프로그램 주차 목록). 그 주는 중량이 한 칸 멈추고
+   (미루기와 같은 효과 · 자동), 세트가 절반으로 보인다. 기준 주차보다 앞선 디로드는 이미
+   기준일에 반영돼 있으므로 기준 주차 뒤의 것만 센다. 증량 전진이 1주일 때만 멈춤을 건다 */
+const DL = (BA&&BA.deload)||[];
+const BWKC = BA ? Math.floor(dayGap(BA.cdate,BA.date)/7)+1 : 0;
+const dlPassed = wk => DL.filter(d=>d>BWKC&&d<=wk).length;
 function backWeekOf(t){
   if(!BA) return null;
   const n=dayGap(t,BA.date);
   if(n<0) return null;
   const wk=Math.floor(n/7)+1;
   const cn=dayGap(t,BA.cdate)-BSHIFT*7;
-  const cyc=clampW(BA.cycle+Math.floor(cn/(BA.step*7)));
-  return {wk, cycle: cyc, from: dayAdd(BA.date,(wk-1)*7)};
+  const cyc=clampW(BA.cycle+Math.floor(cn/(BA.step*7))-(BA.step===1?dlPassed(wk):0));
+  return {wk, cycle: cyc, from: dayAdd(BA.date,(wk-1)*7), deload: DL.includes(wk)};
 }
+const bToday = () => BA ? backWeekOf(ymd(new Date())) : null;
+/* 지금 보는 화면이 '이번 주 디로드'인가 — 화살표로 다른 주를 넘겨 보면 평소 세트로 보인다 */
+const dlOn = () => { if(mode!=="back") return false; const b=bToday();
+  return !!(b&&b.deload&&week===Math.max(b.cycle,xlCycle())); };
+const isDeadRow = e => e.lift==="dead" || (/데드리프트/.test(e.name)&&!/루마니안/.test(e.name));
+/* 복귀_증량원칙 디로드 규칙: 메인 리프트는 내림(5→2 · 4→2 · 3→1), 데드는 건너뜀, 보조는 반올림(3→2 · 4→2 · 6→3) */
+const dlSets = e => e.s<=0 ? e.s : isDeadRow(e) ? 0
+  : e.lift ? Math.max(1,Math.floor(e.s/2)) : Math.max(1,Math.round(e.s/2));
+const effSets = (e,w) => rampOn() ? setsOf(e,w) : dlOn() ? dlSets(e) : e.s;
 /* 지금 쓰는 사이클보다 큰 사이클이 처음 시작되는 날. 손으로 먼저 올려 둔 경우에도
    '다음'이 과거를 가리키지 않는다. 마지막 사이클이면 null */
 function backNextAfter(eff){
-  for(let k=0; k<=WEEKS+2; k++){
-    const c=BA.cycle+k;
-    if(c>WLAST) return null;
-    if(c>eff) return {cycle:c, from: dayAdd(BA.cdate, BSHIFT*7+k*BA.step*7)};
+  /* 주마다 훑는다 — 미루기 · 디로드로 사이클이 멈추는 주가 있어 산술로 못 푼다 */
+  for(let k=0; k<=(WEEKS+DL.length+4)*Math.max(1,BA.step); k++){
+    const from=dayAdd(BA.cdate,k*7), w=backWeekOf(from);
+    if(w&&w.cycle>eff) return {cycle:w.cycle, from};
   }
   return null;
 }
@@ -1707,10 +1732,11 @@ function backCalHTML(){
     head=`<div class="cal-now"><b>복귀 ${cur.wk}주차 · ${eff}사이클</b>
       <p class="num">${+wkFrom.slice(5,7)}/${+wkFrom.slice(8)}(${DOWK(wkFrom)}) ~ ${+wkTo.slice(5,7)}/${+wkTo.slice(8)}(${DOWK(wkTo)})
         ${ahead?` · <b>엑셀을 먼저 올림</b>`:""}</p>
-      <p class="num" style="color:var(--mute)">지난주 대비 ${up}kg</p>
+      ${cur.deload?`<p><b>디로드 주</b> — 세트 절반 · 중량은 지난주 그대로 · 데드 건너뜀. 다음 주에 다시 오른다</p>`
+        :`<p class="num" style="color:var(--mute)">지난주 대비 ${up}kg</p>`}
       <p>${keys.map(k=>`${esc(LIFT[k].ko)} <b class="num">${fmt(workWeight(k,eff))}</b>kg`).join(" · ")}</p>
       <p>${nx
-        ? `다음 주(${nx.cycle}주차 · ${+nx.from.slice(5,7)}/${+nx.from.slice(8)} ${DOWK(nx.from)}) —
+        ? `다음 주(${+nx.from.slice(5,7)}/${+nx.from.slice(8)} ${DOWK(nx.from)} · 중량 ${nx.cycle}주차 칸) —
            ${keys.map(k=>`${esc(LIFT[k].ko)} ${fmt(workWeight(k,nx.cycle))}`).join(" · ")}kg`
         : `${WLAST}주차가 표의 마지막이다 — 여기서부터는 중량이 아니라 더블 프로그레션으로 넘긴다`}</p>
       ${eff>xlCycle()
@@ -1735,7 +1761,7 @@ function backCalHTML(){
     const d=new Date(ym.y,ym.m,dn), key=ymd(d), dow=d.getDay(), w=backWeekOf(key);
     const fix=FIX[dow], acc=ACC[dow]||"";
     /* 주차는 줄 첫 칸(토)에 적는다 — 주차가 토요일에 넘어가므로 한 줄이 한 주다 */
-    const badge = w && (dow===6 ? `${w.wk}주차` : "");
+    const badge = w && (dow===6 ? `${w.wk}주차${w.deload?" · 디로드":""}` : "");
     cells.push(`<div class="cal-cell${w?"":" blank"}${key===tKey?" today":""}${fix?"":" rest"}${dow===0?" sun":""}"
       style="${acc?`--acc:${acc}`:""}">
       <b>${dn}</b>${w?`${fix
@@ -1914,20 +1940,24 @@ function prepToday(){
   const day=S.days.find(r=>r[0]===dow), kind=day?day[1]:"";
   const main=kind.startsWith("메인"), off=!kind||kind.startsWith("없음");
   const cr=C.prog.find(r=>r[0]===wk)||C.prog[C.prog.length-1];
-  const sr=S.ramp.find(r=>r[0]===Math.min(wk,S.ramp.length))||S.ramp[S.ramp.length-1];
+  /* 디로드 주에는 계단도 한 주 멈춘다 — 그 주는 지난주 분량. 캐리는 엑셀 진행표가 이미 멈춰 둔다 */
+  const bt=bToday(), b0=C.prog.length&&BA?backWeekOf(C.prog[0][1]):null;
+  const dlNow=!!(bt&&bt.deload);
+  const swk=Math.max(1,wk-(bt&&b0?DL.filter(x=>x>=b0.wk&&x<=bt.wk).length:0));
+  const sr=S.ramp.find(r=>r[0]===Math.min(swk,S.ramp.length))||S.ramp[S.ramp.length-1];
   const carry=cr?{name:"파머스 워크",mg:"캐리",w:pVal(cr[0],"w")||String(cr[2]),r:"",s:4,wk:40,rt:120,drop:0}:null;
   /* 쉬는 날에 계단만 따로 돌리면 짧은 날 분량이다 */
   const stairs=sr?{name:"천국의 계단",mg:"계단",w:String(sr[1]),r:"",
                    s:main?sr[3]:sr[5],wk:(main?sr[2]:sr[4])*60,rt:60,drop:0}:null;
   const ex=off?[]:[main&&carry,stairs].filter(Boolean);
   const one=e=>e?{t:"생수배송 대비 · "+e.name,ex:[e]}:null;
-  return {wk,dow,day,main,off,cr,sr,d:{t:"생수배송 대비 · "+dow,ex},carry:one(carry),stairs:one(stairs)};
+  return {wk,swk,dlNow,dow,day,main,off,cr,sr,d:{t:"생수배송 대비 · "+dow,ex},carry:one(carry),stairs:one(stairs)};
 }
 function prepHTML(){
   const P=D.prep, C=P.carry, S=P.stairs;
-  const T=prepToday(), {wk,dow,day,main,off,cr,sr,d}=T;
+  const T=prepToday(), {wk,swk,dlNow,dow,day,main,off,cr,sr,d}=T;
   const today = off ? `<b>오늘(${dow}) · 쉬는 날</b><span>${esc(day?day[2]:"")}</span>`
-    : `<b>오늘(${dow}) · ${wk}주차</b><span>${main&&cr?`캐리 한 손 ${fmt(cr[2])}kg · 40초 × 4 (휴식 120초) → `:""}계단 ${
+    : `<b>오늘(${dow}) · ${wk}주차${dlNow?" · 디로드 주 — 캐리 · 계단 무게와 분량 멈춤":""}</b><span>${main&&cr?`캐리 한 손 ${fmt(cr[2])}kg · 40초 × 4 (휴식 120초) → `:""}계단 ${
         main?`${sr[2]}분 × ${sr[3]}`:`${sr[4]}분 × ${sr[5]}`} · 덤벨 한 손 ${esc(sr[1])}kg (휴식 60초)</span>`;
   /* 세션 끝 휴식은 타이머도 빼므로 마지막 종목의 휴식 하나를 덜어 센다 */
   const mins=x=>{ const L=x.ex[x.ex.length-1]; return Math.round((x.ex.reduce((a,e)=>a+e.s*(e.wk+e.rt),0)-(L?L.rt:0))/60); };
@@ -1951,7 +1981,7 @@ function prepHTML(){
   <table class="tbl"><tbody>${C.rules.map(r=>`<tr><td>${esc(r[0])}</td><td class="wrap" style="color:var(--ink)">${esc(r[1])}<br><span style="color:var(--mute)">${esc(r[2])}</span></td></tr>`).join("")}</tbody></table>
   <h5 style="font-size:13px;font-weight:800;margin:22px 0 4px">천국의 계단 + 덤벨</h5><p class="daysub">${esc(S.sub)}</p>
   <table class="tbl"><thead><tr><th>주차</th><th>한 손</th><th>메인 (토·수)</th><th>짧은 날</th><th>주간 분</th></tr></thead><tbody>
-  ${S.ramp.map(r=>`<tr${r[0]===Math.min(wk,S.ramp.length)?' style="background:var(--surface)"':""}><td>${r[0]}</td><td class="num">${esc(r[1])}</td>
+  ${S.ramp.map(r=>`<tr${r[0]===Math.min(swk,S.ramp.length)?' style="background:var(--surface)"':""}><td>${r[0]}</td><td class="num">${esc(r[1])}</td>
     <td class="num">${r[2]}분 × ${r[3]}</td><td class="num">${r[4]}분 × ${r[5]}</td><td class="num" style="font-weight:800">${r[8]}</td></tr>`).join("")}
   </tbody></table>
   <table class="tbl"><tbody>${S.days.map(r=>`<tr class="${r[1].startsWith("없음")?"rest":""}"><td>${esc(r[0])}${r[0]===dow?" · 오늘":""}</td>
@@ -2106,7 +2136,7 @@ const restLabel=e=>{const L=e.rl;
 let TM=null, tmInt=null, tmAC=null, tmWL=null, tmLeft=-1;
 
 function tmSteps(d,week,from){
-  const on=rampOn(), S=e=>on?setsOf(e,week):e.s;
+  const S=e=>effSets(e,week);
   const live=allEx(d).filter(e=>e.s!==0&&S(e)>0&&e.wk>0);
   /* 슈퍼세트 — 같은 태그가 붙은 이웃 종목끼리 한 묶음이 되어 세트를 번갈아
      돈다 (A1 → A2 → 휴식 → A1 → A2 → …). 휴식(초)의 뜻은 그대로 "이 종목
@@ -2615,7 +2645,7 @@ function render(){
   document.getElementById("wk-num").textContent=week;
   /* 큰 숫자는 중량 사이클이다. 볼륨이 그보다 앞서 있으면 여기서 같이 밝힌다 */
   document.getElementById("wk-of").textContent=`WEEK / ${WLAST}`
-    + (mode==="back" ? " · 매주 한 칸"
+    + (mode==="back" ? (dlOn()?" · 디로드 주":" · 매주 한 칸")
        : rampOn()&&vWeek(week)!==week ? ` · 볼륨 ${vWeek(week)}주` : "");
   document.getElementById("wk-track").innerHTML=
     Array.from({length:WEEKS},(_,i)=>`<span class="${i<week-WBASE+1?'on':''}"></span>`).join("");

@@ -675,7 +675,9 @@ def parse_prep(wb):
     foot = [r[0] for r in prog if not isinstance(r[0], (int, float))]
     prog = [r for r in prog if isinstance(r[0], (int, float))]
     days, _ = table(t, "요일", (1, 2, 9))
-    ramp, end2 = table(t, "주차", (1, 2, 3, 4, 5, 6, 7, 8, 9))
+    ramp, end2 = table(t, "회차", (1, 2, 3, 4, 5, 6, 7, 8))
+    sfoot = [r[0] for r in ramp if not isinstance(r[0], (int, float))]
+    ramp = [r for r in ramp if isinstance(r[0], (int, float))]
     return {
         "carry": {
             "t": s(c.cell(1, 1).value), "sub": s(c.cell(2, 1).value),
@@ -687,7 +689,9 @@ def parse_prep(wb):
         "stairs": {
             "t": s(t.cell(1, 1).value), "sub": s(t.cell(2, 1).value),
             "days": [[s(a), s(b), s(x)] for a, b, x in days],
-            "ramp": [[int(num(r[0])), s(r[1])] + [int(num(v)) for v in r[2:]] for r in ramp],
+            # [회차, 날짜, 메인 kg, 메인 분, 메인 세트, 짧은 날 kg, 짧은 날 분, 짧은 날 세트]
+            "ramp": [[int(num(r[0])), iso(r[1])] + [num(v) for v in r[2:]] for r in ramp],
+            "foot": s(sfoot[0]).lstrip("· ") if sfoot else "",
             "notes": parse_notes_block(t, end2 + 1, "규칙"),
         },
     }
@@ -1957,11 +1961,12 @@ function prepToday(){
   const bt=bToday(), dlNow=!!(bt&&bt.deload);
   const p0=C.prog.length?C.prog[0][1]:ymd(now), tday=ymd(now);
   const swk=Math.max(1,wk-DLD.filter(x=>x>=p0&&x<=tday).length);
-  const sr=S.ramp.find(r=>r[0]===Math.min(swk,S.ramp.length))||S.ramp[S.ramp.length-1];
+  /* 스텝박스는 메인 날(토 · 수)마다 한 칸 — 오늘까지 지난 마지막 칸. 짧은 날은 그 칸의 짧은 날 값. 디로드 주 칸은 엑셀이 멈춰 둔다 */
+  const sr=S.ramp.filter(r=>r[1]<=tday).pop()||S.ramp[0];
   const carry=cr?{name:"파머스 워크",mg:"캐리",w:pVal(cr[0],"w")||String(cr[2]),r:"",s:4,wk:40,rt:120,drop:0}:null;
   /* 쉬는 날에 스텝박스만 따로 돌리면 짧은 날 분량이다 */
-  const stairs=sr?{name:"스텝박스",mg:"스텝",w:String(sr[1]),r:"",
-                   s:main?sr[3]:sr[5],wk:(main?sr[2]:sr[4])*60,rt:60,drop:0}:null;
+  const stairs=sr?{name:"스텝박스",mg:"스텝",w:fmt(main?sr[2]:sr[5]),r:"",
+                   s:main?sr[4]:sr[7],wk:(main?sr[3]:sr[6])*60,rt:60,drop:0}:null;
   const ex=off?[]:[main&&carry,stairs].filter(Boolean);
   const one=e=>e?{t:"생수배송 대비 · "+e.name,ex:[e]}:null;
   return {wk,swk,dlNow,dow,day,main,off,cr,sr,d:{t:"생수배송 대비 · "+dow,ex},carry:one(carry),stairs:one(stairs)};
@@ -1971,7 +1976,7 @@ function prepHTML(){
   const T=prepToday(), {wk,swk,dlNow,dow,day,main,off,cr,sr,d}=T;
   const today = off ? `<b>오늘(${dow}) · 쉬는 날</b><span>${esc(day?day[2]:"")}</span>`
     : `<b>오늘(${dow}) · ${dlNow?"디로드 주 — 캐리 · 스텝박스 무게와 분량 멈춤":swk+"주차"}</b><span>${main&&cr?`캐리 한 손 ${fmt(cr[2])}kg · 40초 × 4 (휴식 120초) → `:""}스텝박스 ${
-        main?`${sr[2]}분 × ${sr[3]}`:`${sr[4]}분 × ${sr[5]}`} · 덤벨 한 손 ${esc(sr[1])}kg (휴식 60초)</span>`;
+        main?`${sr[3]}분 × ${sr[4]}`:`${sr[6]}분 × ${sr[7]}`} · 덤벨 한 손 ${fmt(main?sr[2]:sr[5])}kg (휴식 60초)</span>`;
   /* 세션 끝 휴식은 타이머도 빼므로 마지막 종목의 휴식 하나를 덜어 센다 */
   const mins=x=>{ const L=x.ex[x.ex.length-1]; return Math.round((x.ex.reduce((a,e)=>a+e.s*(e.wk+e.rt),0)-(L?L.rt:0))/60); };
   const sub=`background:var(--surface);color:var(--ink);flex:1;margin:0`;
@@ -1995,10 +2000,11 @@ function prepHTML(){
   ${Object.keys(PLOG).length?`<button class="day-go" id="prep-copy" style="background:var(--surface);color:var(--ink)">엑셀에 옮길 값 복사 (복귀_캐리 E·F열)</button>`:""}
   <table class="tbl"><tbody>${C.rules.map(r=>`<tr><td>${esc(r[0])}</td><td class="wrap" style="color:var(--ink)">${esc(r[1])}<br><span style="color:var(--mute)">${esc(r[2])}</span></td></tr>`).join("")}</tbody></table>
   <h5 style="font-size:13px;font-weight:800;margin:22px 0 4px">스텝박스 + 덤벨</h5><p class="daysub">${esc(S.sub)}</p>
-  <table class="tbl"><thead><tr><th>주차</th><th>한 손</th><th>메인 (토·수)</th><th>짧은 날</th><th>주간 분</th></tr></thead><tbody>
-  ${S.ramp.map(r=>`<tr${r[0]===Math.min(swk,S.ramp.length)?' style="background:var(--surface)"':""}><td>${r[0]}</td><td class="num">${esc(r[1])}</td>
-    <td class="num">${r[2]}분 × ${r[3]}</td><td class="num">${r[4]}분 × ${r[5]}</td><td class="num" style="font-weight:800">${r[8]}</td></tr>`).join("")}
-  </tbody></table>
+  <table class="tbl"><thead><tr><th>회차</th><th>날짜</th><th>메인 (토·수)</th><th>짧은 날</th></tr></thead><tbody>
+  ${S.ramp.map(r=>`<tr${r===sr?' style="background:var(--surface)"':""}><td>${inDL(r[1])?"디로드":r[0]-S.ramp.filter(x=>x[0]<r[0]&&inDL(x[1])).length}${r===sr?(r[1]>ymd(new Date())?" · 다음":" · 지금"):""}</td>
+    <td class="num">${md(r[1])} ${"일월화수목금토"[ymdParse(r[1]).getDay()]}</td>
+    <td class="num"><b style="color:var(--ink)">${fmt(r[2])}kg</b> · ${r[3]}분 × ${r[4]}</td><td class="num" style="color:var(--mute)">${fmt(r[5])}kg · ${r[6]}분 × ${r[7]}</td></tr>`).join("")}
+  </tbody></table>${S.foot?`<p class="daysub">${esc(S.foot)}</p>`:""}
   <table class="tbl"><tbody>${S.days.map(r=>`<tr class="${r[1].startsWith("없음")?"rest":""}"><td>${esc(r[0])}${r[0]===dow?" · 오늘":""}</td>
     <td class="wrap" style="color:var(--ink)">${esc(r[1])}</td><td class="wrap">${esc(r[2])}</td></tr>`).join("")}</tbody></table>
   ${notesHTML(S.notes)}`;

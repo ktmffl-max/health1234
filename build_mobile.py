@@ -669,6 +669,14 @@ def parse_prep(wb):
         return v.strftime("%Y-%m-%d") if hasattr(v, "strftime") else s(v)
 
     c, t = wb["복귀_캐리"], wb["복귀_스텝박스"]
+    # 집 — 진짜 생수팩 + 아파트 계단. 시트가 없으면 앱에서 그 칸만 빠진다
+    home = None
+    if "복귀_집계단" in wb.sheetnames:
+        h = wb["복귀_집계단"]
+        hrows, hend = table(h, "시작일", (1, 2, 3, 4, 5))
+        home = {"t": s(h.cell(1, 1).value), "sub": s(h.cell(2, 1).value),
+                "rows": [[iso(d), s(w), s(am), s(pm), s(q)] for d, w, am, pm, q in hrows],
+                "notes": parse_notes_block(h, hend + 1, "규칙")}
     rules, _ = table(c, "항목", (1, 2, 6))
     prog, _ = table(c, "회차", (1, 2, 3, 4, 5, 6))
     # 진행표 바로 밑 '· …' 주석 줄은 빈 줄 없이 붙어 있어 표에 딸려 들어온다
@@ -694,6 +702,7 @@ def parse_prep(wb):
             "foot": s(sfoot[0]).lstrip("· ") if sfoot else "",
             "notes": parse_notes_block(t, end2 + 1, "규칙"),
         },
+        "home": home,
     }
 
 
@@ -1971,11 +1980,17 @@ function prepToday(){
                    s:main?sr[4]:sr[7],wk:(main?sr[3]:sr[6])*60,rt:60,drop:0}:null;
   const ex=off?[]:[main&&carry,stairs].filter(Boolean);
   const one=e=>e?{t:"생수배송 대비 · "+e.name,ex:[e]}:null;
-  return {wk,swk,dlNow,dow,day,main,off,cr,sr,strap,d:{t:"생수배송 대비 · "+dow,ex},carry:one(carry),stairs:one(stairs)};
+  /* 집 — 오늘까지 시작한 마지막 단계. 아침 · 저녁 칸에 오늘 요일이 들어 있으면 하는 날이다 */
+  const hr=P.home?P.home.rows.filter(r=>r[0]<=tday).pop():null;
+  const home=hr?{w:hr[1],q:hr[4],am:hr[2].includes(dow),pm:hr[3].includes(dow)}:null;
+  return {wk,swk,dlNow,dow,day,main,off,cr,sr,strap,home,d:{t:"생수배송 대비 · "+dow,ex},carry:one(carry),stairs:one(stairs)};
 }
 function prepHTML(){
   const P=D.prep, C=P.carry, S=P.stairs;
-  const T=prepToday(), {wk,swk,dlNow,dow,day,main,off,cr,sr,strap,d}=T;
+  const T=prepToday(), {wk,swk,dlNow,dow,day,main,off,cr,sr,strap,home,d}=T, H=P.home;
+  const homeLine = !home ? "" : home.am||home.pm
+      ? `<span>집 (${[home.am&&"아침",home.pm&&"저녁"].filter(Boolean).join(" · ")}) — 한쪽 ${esc(home.w)} · ${esc(home.q)}${dlNow?" · 디로드 주라 왕복 1번":""}</span>`
+      : `<span>집 — 오늘은 쉼</span>`;
   const today = off ? `<b>오늘(${dow}) · 쉬는 날</b><span>${esc(day?day[2]:"")}</span>`
     : `<b>오늘(${dow}) · ${dlNow?"디로드 주 — 캐리 · 스텝박스 무게와 분량 멈춤":swk+"주차"}</b><span>${main&&cr?`캐리 한 손 ${fmt(cr[2])}kg · 40초 × 4 (휴식 120초) → `:""}스텝박스 ${
         main?`${sr[3]}분 × ${sr[4]}`:`${sr[6]}분 × ${sr[7]}`} · 덤벨 한 손 ${fmt(main?sr[2]:sr[5])}kg ${strap?`<b style="color:var(--sq)">· ${esc(strap)}</b>`:"· 맨손"} (휴식 60초)</span>`;
@@ -1987,10 +2002,11 @@ function prepHTML(){
   const go = (off ? "" : `<button class="day-go" style="margin-top:12px" data-prep-tm="today">&#9654; 오늘 세션 · 약 ${mins(d)}분</button>`)
     + `<div style="display:flex;gap:8px;margin:${off?"12px":"0"} 0 15px">${part("carry",T.carry,"캐리")}${part("stairs",T.stairs,"스텝박스")}</div>`;
   const md=t=>{ const d=ymdParse(t); return `${d.getMonth()+1}/${d.getDate()}`; };
+  const hr0=X=>X.rows.filter(r=>r[0]<=ymd(new Date())).pop();
   /* 디로드 주(시작 토요일부터 7일) 안의 회차 — 무게가 멈춘 줄이라 번호에서 뺀다 */
   const inDL=t=>DLD.some(x=>{ const g=(ymdParse(t)-ymdParse(x))/864e5; return g>=0&&g<7; });
   return `<h2 class="daytitle">생수배송 대비</h2><p class="daysub">목표: 한 손 36kg(2L 묶음 3팩) 컨트롤 · 세트 합계 밖</p>
-  <div class="rampbar">${today}</div>${go}
+  <div class="rampbar">${today}${homeLine}</div>${go}
   <h5 style="font-size:13px;font-weight:800;margin:22px 0 4px">캐리 — 무겁게 들고 걷기</h5><p class="daysub">${esc(C.sub)}</p>
   <table class="tbl"><thead><tr><th>회차</th><th>날짜</th><th>한 손</th><th>양손</th><th>실제</th><th class="wrap">메모</th></tr></thead><tbody>
   ${C.prog.map(r=>`<tr${r===cr?' style="background:var(--surface)"':""}><td>${inDL(r[1])?"디로드":r[0]-C.prog.filter(x=>x[0]<r[0]&&inDL(x[1])).length}${r===cr?(r[1]===ymd(new Date())?" · 오늘":" · 다음"):""}</td>
@@ -2009,7 +2025,12 @@ function prepHTML(){
   </tbody></table>${S.foot?`<p class="daysub">${esc(S.foot)}</p>`:""}
   <table class="tbl"><tbody>${S.days.map(r=>`<tr class="${r[1].startsWith("없음")?"rest":""}"><td>${esc(r[0])}${r[0]===dow?" · 오늘":""}</td>
     <td class="wrap" style="color:var(--ink)">${esc(r[1])}</td><td class="wrap">${esc(r[2])}</td></tr>`).join("")}</tbody></table>
-  ${notesHTML(S.notes)}`;
+  ${notesHTML(S.notes)}
+  ${H?`<h5 style="font-size:13px;font-weight:800;margin:22px 0 4px">집 — 생수팩 + 계단</h5><p class="daysub">${esc(H.sub)}</p>
+  <table class="tbl"><thead><tr><th>시작</th><th class="wrap">한쪽</th><th>아침</th><th>저녁</th></tr></thead><tbody>
+  ${H.rows.map(r=>`<tr${hr0(H)===r?' style="background:var(--surface)"':""}><td class="num">${md(r[0])}</td><td class="wrap" style="color:var(--ink)">${esc(r[1])}<br><span style="color:var(--mute)">${esc(r[4])}</span></td>
+    <td class="wrap">${esc(r[2])}</td><td class="wrap">${esc(r[3])}</td></tr>`).join("")}
+  </tbody></table>${notesHTML(H.notes)}`:""}`;
 }
 function progressHTML(week){
   const keys=Object.keys(LIFT), c=week, fat=logVal(c,"fat");

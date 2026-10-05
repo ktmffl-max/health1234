@@ -648,10 +648,10 @@ def parse_back_plan(wb):
 
 
 def parse_prep(wb):
-    """생수배송 대비 두 시트(복귀_캐리 · 복귀_천국의계단) → 앱 '배송' 탭. 세트 카운트 밖이다.
+    """생수배송 대비 두 시트(복귀_캐리 · 복귀_스텝박스) → 앱 '배송' 탭. 세트 카운트 밖이다.
 
     표는 머리글 첫 칸('항목' · '요일' · '주차')으로 찾는다 — 행 번호를 박지 않는다."""
-    if "복귀_캐리" not in wb.sheetnames or "복귀_천국의계단" not in wb.sheetnames:
+    if "복귀_캐리" not in wb.sheetnames or "복귀_스텝박스" not in wb.sheetnames:
         return None
 
     def table(ws, head, cols, start=1):
@@ -668,7 +668,7 @@ def parse_prep(wb):
     def iso(v):
         return v.strftime("%Y-%m-%d") if hasattr(v, "strftime") else s(v)
 
-    c, t = wb["복귀_캐리"], wb["복귀_천국의계단"]
+    c, t = wb["복귀_캐리"], wb["복귀_스텝박스"]
     rules, _ = table(c, "항목", (1, 2, 6))
     prog, _ = table(c, "주차", (1, 2, 3, 4, 5, 6))
     # 진행표 바로 밑 '· …' 주석 줄은 빈 줄 없이 붙어 있어 표에 딸려 들어온다
@@ -1922,7 +1922,7 @@ function backPlanHTML(){
   <tr><td style="font-weight:800">합계</td><td colspan="3"></td><td class="num" style="font-weight:800">${p.total}</td></tr>
   </tbody></table>${notesHTML(p.notes)}`;
 }
-/* 생수배송 대비 — 복귀_캐리 · 복귀_천국의계단. 주차는 진행표 1주차 토요일부터 날짜로 센다 */
+/* 생수배송 대비 — 복귀_캐리 · 복귀_스텝박스. 주차는 진행표 1주차 토요일부터 날짜로 센다 */
 /* 캐리 진행표 실제 무게 · 메모 — 폰에서 적는 칸. 증량 기록(wk-log)과 같은 규칙:
    엑셀 E·F열과 같아지면 지운다(옮겨 적었다는 뜻), 빈 값으로 고치면 엑셀 값으로 돌아간다 */
 const PGK="wk-prep";
@@ -1943,7 +1943,7 @@ function setPLog(w,f,v){
   savePLog();
 }
 /* 오늘 할 것 — 표 · 타이머가 같은 값을 쓴다. 타이머에는 종목 두 개짜리 세션으로 넘긴다
-   (캐리 40초 × 4 · 휴식 120초 → 계단 N분 × M · 휴식 60초). 캐리 마지막 휴식이 계단으로 넘어가는 시간이다 */
+   (캐리 40초 × 4 · 휴식 120초 → 스텝박스 N분 × M · 휴식 60초). 캐리 마지막 휴식이 스텝박스로 넘어가는 시간이다 */
 function prepToday(){
   const P=D.prep, C=P.carry, S=P.stairs, now=new Date();
   const start=C.prog.length?ymdParse(C.prog[0][1]):now;
@@ -1952,14 +1952,14 @@ function prepToday(){
   const day=S.days.find(r=>r[0]===dow), kind=day?day[1]:"";
   const main=kind.startsWith("메인"), off=!kind||kind.startsWith("없음");
   const cr=C.prog.find(r=>r[0]===wk)||C.prog[C.prog.length-1];
-  /* 디로드 주에는 계단도 한 주 멈춘다 — 그 주는 지난주 분량. 캐리는 엑셀 진행표가 이미 멈춰 둔다 */
+  /* 디로드 주에는 스텝박스도 한 주 멈춘다 — 그 주는 지난주 분량. 캐리는 엑셀 진행표가 이미 멈춰 둔다 */
   const bt=bToday(), dlNow=!!(bt&&bt.deload);
   const p0=C.prog.length?C.prog[0][1]:ymd(now), tday=ymd(now);
   const swk=Math.max(1,wk-DLD.filter(x=>x>=p0&&x<=tday).length);
   const sr=S.ramp.find(r=>r[0]===Math.min(swk,S.ramp.length))||S.ramp[S.ramp.length-1];
   const carry=cr?{name:"파머스 워크",mg:"캐리",w:pVal(cr[0],"w")||String(cr[2]),r:"",s:4,wk:40,rt:120,drop:0}:null;
-  /* 쉬는 날에 계단만 따로 돌리면 짧은 날 분량이다 */
-  const stairs=sr?{name:"천국의 계단",mg:"계단",w:String(sr[1]),r:"",
+  /* 쉬는 날에 스텝박스만 따로 돌리면 짧은 날 분량이다 */
+  const stairs=sr?{name:"스텝박스",mg:"스텝",w:String(sr[1]),r:"",
                    s:main?sr[3]:sr[5],wk:(main?sr[2]:sr[4])*60,rt:60,drop:0}:null;
   const ex=off?[]:[main&&carry,stairs].filter(Boolean);
   const one=e=>e?{t:"생수배송 대비 · "+e.name,ex:[e]}:null;
@@ -1969,7 +1969,7 @@ function prepHTML(){
   const P=D.prep, C=P.carry, S=P.stairs;
   const T=prepToday(), {wk,swk,dlNow,dow,day,main,off,cr,sr,d}=T;
   const today = off ? `<b>오늘(${dow}) · 쉬는 날</b><span>${esc(day?day[2]:"")}</span>`
-    : `<b>오늘(${dow}) · ${dlNow?"디로드 주 — 캐리 · 계단 무게와 분량 멈춤":swk+"주차"}</b><span>${main&&cr?`캐리 한 손 ${fmt(cr[2])}kg · 40초 × 4 (휴식 120초) → `:""}계단 ${
+    : `<b>오늘(${dow}) · ${dlNow?"디로드 주 — 캐리 · 스텝박스 무게와 분량 멈춤":swk+"주차"}</b><span>${main&&cr?`캐리 한 손 ${fmt(cr[2])}kg · 40초 × 4 (휴식 120초) → `:""}스텝박스 ${
         main?`${sr[2]}분 × ${sr[3]}`:`${sr[4]}분 × ${sr[5]}`} · 덤벨 한 손 ${esc(sr[1])}kg (휴식 60초)</span>`;
   /* 세션 끝 휴식은 타이머도 빼므로 마지막 종목의 휴식 하나를 덜어 센다 */
   const mins=x=>{ const L=x.ex[x.ex.length-1]; return Math.round((x.ex.reduce((a,e)=>a+e.s*(e.wk+e.rt),0)-(L?L.rt:0))/60); };
@@ -1977,7 +1977,7 @@ function prepHTML(){
   const part=(k,x,lab)=>x?`<button class="day-go" style="${sub}" data-prep-tm="${k}">&#9654; ${lab}만<i style="display:block">${
     x.ex[0].s} × ${x.ex[0].wk>=60?x.ex[0].wk/60+"분":x.ex[0].wk+"초"} · 약 ${mins(x)}분</i></button>`:"";
   const go = (off ? "" : `<button class="day-go" style="margin-top:12px" data-prep-tm="today">&#9654; 오늘 세션 · 약 ${mins(d)}분</button>`)
-    + `<div style="display:flex;gap:8px;margin:${off?"12px":"0"} 0 15px">${part("carry",T.carry,"캐리")}${part("stairs",T.stairs,"계단")}</div>`;
+    + `<div style="display:flex;gap:8px;margin:${off?"12px":"0"} 0 15px">${part("carry",T.carry,"캐리")}${part("stairs",T.stairs,"스텝박스")}</div>`;
   const md=t=>{ const d=ymdParse(t); return `${d.getMonth()+1}/${d.getDate()}`; };
   return `<h2 class="daytitle">생수배송 대비</h2><p class="daysub">목표: 한 손 36kg(2L 묶음 3팩) 컨트롤 · 세트 합계 밖</p>
   <div class="rampbar">${today}</div>${go}
@@ -1991,7 +1991,7 @@ function prepHTML(){
   </tbody></table>${C.foot?`<p class="daysub">${esc(C.foot)}</p>`:""}
   ${Object.keys(PLOG).length?`<button class="day-go" id="prep-copy" style="background:var(--surface);color:var(--ink)">엑셀에 옮길 값 복사 (복귀_캐리 E·F열)</button>`:""}
   <table class="tbl"><tbody>${C.rules.map(r=>`<tr><td>${esc(r[0])}</td><td class="wrap" style="color:var(--ink)">${esc(r[1])}<br><span style="color:var(--mute)">${esc(r[2])}</span></td></tr>`).join("")}</tbody></table>
-  <h5 style="font-size:13px;font-weight:800;margin:22px 0 4px">천국의 계단 + 덤벨</h5><p class="daysub">${esc(S.sub)}</p>
+  <h5 style="font-size:13px;font-weight:800;margin:22px 0 4px">스텝박스 + 덤벨</h5><p class="daysub">${esc(S.sub)}</p>
   <table class="tbl"><thead><tr><th>주차</th><th>한 손</th><th>메인 (토·수)</th><th>짧은 날</th><th>주간 분</th></tr></thead><tbody>
   ${S.ramp.map(r=>`<tr${r[0]===Math.min(swk,S.ramp.length)?' style="background:var(--surface)"':""}><td>${r[0]}</td><td class="num">${esc(r[1])}</td>
     <td class="num">${r[2]}분 × ${r[3]}</td><td class="num">${r[4]}분 × ${r[5]}</td><td class="num" style="font-weight:800">${r[8]}</td></tr>`).join("")}

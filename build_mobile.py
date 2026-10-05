@@ -670,7 +670,7 @@ def parse_prep(wb):
 
     c, t = wb["복귀_캐리"], wb["복귀_스텝박스"]
     rules, _ = table(c, "항목", (1, 2, 6))
-    prog, _ = table(c, "주차", (1, 2, 3, 4, 5, 6))
+    prog, _ = table(c, "회차", (1, 2, 3, 4, 5, 6))
     # 진행표 바로 밑 '· …' 주석 줄은 빈 줄 없이 붙어 있어 표에 딸려 들어온다
     foot = [r[0] for r in prog if not isinstance(r[0], (int, float))]
     prog = [r for r in prog if isinstance(r[0], (int, float))]
@@ -1922,7 +1922,8 @@ function backPlanHTML(){
   <tr><td style="font-weight:800">합계</td><td colspan="3"></td><td class="num" style="font-weight:800">${p.total}</td></tr>
   </tbody></table>${notesHTML(p.notes)}`;
 }
-/* 생수배송 대비 — 복귀_캐리 · 복귀_스텝박스. 주차는 진행표 1주차 토요일부터 날짜로 센다 */
+/* 생수배송 대비 — 복귀_캐리 · 복귀_스텝박스. 스텝박스 주차는 캐리 1회차 토요일부터 날짜로 센다.
+   캐리는 회차(토 · 수) 단위 — 오늘 이후 첫 회차가 오늘(캐리 날) 또는 다음 캐리다 */
 /* 캐리 진행표 실제 무게 · 메모 — 폰에서 적는 칸. 증량 기록(wk-log)과 같은 규칙:
    엑셀 E·F열과 같아지면 지운다(옮겨 적었다는 뜻), 빈 값으로 고치면 엑셀 값으로 돌아간다 */
 const PGK="wk-prep";
@@ -1951,7 +1952,7 @@ function prepToday(){
   const dow="일월화수목금토"[now.getDay()];
   const day=S.days.find(r=>r[0]===dow), kind=day?day[1]:"";
   const main=kind.startsWith("메인"), off=!kind||kind.startsWith("없음");
-  const cr=C.prog.find(r=>r[0]===wk)||C.prog[C.prog.length-1];
+  const tday0=ymd(now), cr=C.prog.find(r=>r[1]>=tday0)||C.prog[C.prog.length-1];
   /* 디로드 주에는 스텝박스도 한 주 멈춘다 — 그 주는 지난주 분량. 캐리는 엑셀 진행표가 이미 멈춰 둔다 */
   const bt=bToday(), dlNow=!!(bt&&bt.deload);
   const p0=C.prog.length?C.prog[0][1]:ymd(now), tday=ymd(now);
@@ -1979,12 +1980,14 @@ function prepHTML(){
   const go = (off ? "" : `<button class="day-go" style="margin-top:12px" data-prep-tm="today">&#9654; 오늘 세션 · 약 ${mins(d)}분</button>`)
     + `<div style="display:flex;gap:8px;margin:${off?"12px":"0"} 0 15px">${part("carry",T.carry,"캐리")}${part("stairs",T.stairs,"스텝박스")}</div>`;
   const md=t=>{ const d=ymdParse(t); return `${d.getMonth()+1}/${d.getDate()}`; };
+  /* 디로드 주(시작 토요일부터 7일) 안의 회차 — 무게가 멈춘 줄이라 번호에서 뺀다 */
+  const inDL=t=>DLD.some(x=>{ const g=(ymdParse(t)-ymdParse(x))/864e5; return g>=0&&g<7; });
   return `<h2 class="daytitle">생수배송 대비</h2><p class="daysub">목표: 한 손 36kg(2L 묶음 3팩) 컨트롤 · 세트 합계 밖</p>
   <div class="rampbar">${today}</div>${go}
   <h5 style="font-size:13px;font-weight:800;margin:22px 0 4px">캐리 — 무겁게 들고 걷기</h5><p class="daysub">${esc(C.sub)}</p>
-  <table class="tbl"><thead><tr><th>주차</th><th>시작</th><th>한 손</th><th>양손</th><th>실제</th><th class="wrap">메모</th></tr></thead><tbody>
-  ${C.prog.map(r=>`<tr${r[0]===wk?' style="background:var(--surface)"':""}><td>${DLD.includes(r[1])?"디로드":r[0]-DLD.filter(x=>x>=C.prog[0][1]&&x<r[1]).length}${r[0]===wk?" · 지금":""}</td>
-    <td class="num">${md(r[1])}</td><td class="num" style="font-weight:800;color:var(--ink)">${fmt(r[2])}</td>
+  <table class="tbl"><thead><tr><th>회차</th><th>날짜</th><th>한 손</th><th>양손</th><th>실제</th><th class="wrap">메모</th></tr></thead><tbody>
+  ${C.prog.map(r=>`<tr${r===cr?' style="background:var(--surface)"':""}><td>${inDL(r[1])?"디로드":r[0]-C.prog.filter(x=>x[0]<r[0]&&inDL(x[1])).length}${r===cr?(r[1]===ymd(new Date())?" · 오늘":" · 다음"):""}</td>
+    <td class="num">${md(r[1])} ${"일월화수목금토"[ymdParse(r[1]).getDay()]}</td><td class="num" style="font-weight:800;color:var(--ink)">${fmt(r[2])}</td>
     <td class="num" style="color:var(--mute)">${fmt(r[3])}</td>
     <td class="num"><input class="log-in" style="width:58px" type="text" inputmode="decimal" data-prepf="w" data-prepw="${r[0]}" value="${escAttr(pVal(r[0],"w"))}" placeholder="—"></td>
     <td class="wrap"><input class="log-in wide" style="width:100%;min-width:70px" type="text" data-prepf="m" data-prepw="${r[0]}" value="${escAttr(pVal(r[0],"m"))}" placeholder="—"></td></tr>`).join("")}
@@ -2614,7 +2617,7 @@ function bindEdits(){
     el.onkeydown=ev=>{ if(ev.key==="Enter") el.blur(); }; });
   const pc=document.getElementById("prep-copy");
   if(pc) pc.onclick=()=>{
-    const text=Object.keys(PLOG).sort((a,b)=>a-b).map(w=>`${w}주차\t${pVal(w,"w")}\t${pVal(w,"m")}`).join("\n");
+    const text=Object.keys(PLOG).sort((a,b)=>a-b).map(w=>`${w}회차\t${pVal(w,"w")}\t${pVal(w,"m")}`).join("\n");
     const ok=()=>{ pc.textContent="복사됨"; setTimeout(()=>{ pc.textContent="엑셀에 옮길 값 복사 (복귀_캐리 E·F열)"; },1500); };
     try{ navigator.clipboard.writeText(text).then(ok,()=>{ pc.textContent="복사 실패"; }); }catch(e){ pc.textContent="복사 실패"; } };
   /* 증량 기록 — 달성/미달 토글, 미달 반복수, 피로 0~5, 관절·메모 */

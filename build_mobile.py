@@ -66,9 +66,11 @@ def home_days(wb):
                   else WEEKDAYS.index(p[0]))
 
 # '메인:' 줄에 적히는 이름 → 증량을 추적하는 리프트.
-# 복귀판은 같은 리프트를 다른 기구로 친다 — 스미스 오버헤드 프레스가 밀리터리 자리다.
+# 복귀판은 같은 리프트를 다른 기구로 친다 — 수요일 시티드 바벨 밀리터리 프레스가 밀리터리 자리다
+# (2026-10-07 스미스 오버헤드 프레스에서 교체 — 옛 이름은 대체 종목으로 돌아갈 때를 위해 남긴다).
 LIFT_KEYS = {"스쿼트": "squat", "데드리프트": "dead",
              "벤치프레스": "bench", "밀리터리 프레스": "press",
+             "시티드 바벨 밀리터리 프레스": "press",
              "스미스 오버헤드 프레스": "press"}
 
 # 볼륨 램프를 중량보다 몇 주 앞세울지.
@@ -1442,7 +1444,7 @@ function stackHTML(total){
   return `<div class="stack"><div class="sleeve"></div>${body}</div>`;
 }
 /* name — 시트의 '메인:' 줄에 적힌 이름. 같은 리프트를 다른 기구로 치는 날이 있어
-   (복귀 토요일의 스미스 오버헤드 프레스 = 밀리터리 자리) 카드에는 그 날의 이름을 쓴다 */
+   (복귀 수요일의 시티드 바벨 밀리터리 프레스 = 밀리터리 자리) 카드에는 그 날의 이름을 쓴다 */
 function liftCard(key,week,sets,name){
   const L=LIFT[key]; if(!L) return "";
   const work=workWeight(key,week), rows=ramp(work);

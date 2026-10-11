@@ -413,9 +413,14 @@ def parse_day(ws):
             # 엑셀 수식의 캐시값을 쓰지 않고 리프트에 'lo'(몇 사이클 전)로 매단다
             # 백오프 = 톱세트 − 5kg(= 2주 전 중량). 주차를 옮기면 같이 따라와야 하므로
             # 엑셀 수식의 캐시값을 쓰지 않고 리프트에 'lo'(톱보다 몇 kg 아래)로 매단다
+            # 복귀판은 2026-10-11부터 톱세트 × 0.82(1kg 반올림) — 톱 −5kg는 94%라 백오프가 아니었다.
+            # 엑셀 D열 =MAX(20,MROUND(톱*0.82,1))과 같은 식이어야 한다
             elif "백오프" in item["name"] and day["main"]:
                 item["lift"] = day["main"]
-                item["lo"] = 5
+                if ws.title.startswith("복귀"):
+                    item["pct"] = 0.82
+                else:
+                    item["lo"] = 5
             (current[1] if current else flat).append(item)
         r += 1
 
@@ -1491,13 +1496,14 @@ function logCtl(k,c){
 }
 const esc = t => String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;");
 const escAttr = t => esc(t).replace(/"/g,"&quot;");
-/* 백오프 행의 중량 — 톱세트 − lo(kg). 엑셀 캐시값이 아니라 지금 주차에서 낸다.
-   5kg은 5로 나눈 나머지를 안 바꾸므로 톱이 끼워지면 백오프도 끼워진다 */
-const exW = e => (e.lo&&e.lift&&LIFT[e.lift])
-  ? fmt(Math.max(20,workWeight(e.lift,week)-e.lo))+"kg" : e.w;
+/* 백오프 행의 중량 — 톱세트 − lo(kg) 또는 톱세트 × pct(1kg 반올림 · 엑셀 MROUND와 같다).
+   엑셀 캐시값이 아니라 지금 주차에서 낸다 */
+const exW = e => ((e.lo||e.pct)&&e.lift&&LIFT[e.lift])
+  ? fmt(Math.max(20, e.pct ? Math.round(workWeight(e.lift,week)*e.pct)
+                           : workWeight(e.lift,week)-e.lo))+"kg" : e.w;
 function exHTML(e,prefix,sets,timed){
   const key=prefix+"|"+e.name, ov=OV.ex[key];
-  const w=ov?ov.w:exW(e), canEdit=e.w!=="위 참조"&&!e.lo;
+  const w=ov?ov.w:exW(e), canEdit=e.w!=="위 참조"&&!e.lo&&!e.pct;
   const n=(sets==null?e.s:sets);
   /* 이번 주에 안 하는 종목 — 목록에서 빼지 않고 흐리게 남긴다.
      사라진 게 아니라 몇 주차에 돌아오는지가 보여야 한다. 메모·대체 종목은 그때 읽으면 된다.
@@ -2218,7 +2224,7 @@ function tmSteps(d,week,from){
 }
 function tmW(e){
   if(e.w==="위 참조"&&e.lift) return fmt(workWeight(e.lift,week))+"kg";
-  if(e.lo) return exW(e);
+  if(e.lo||e.pct) return exW(e);
   const ov=OV.ex[mode+"|"+tab+"|"+e.name], w=String(ov?ov.w:e.w);
   return /^[\d.~\s]+$/.test(w) ? w.replace(/\s+$/,"")+"kg" : w;
 }

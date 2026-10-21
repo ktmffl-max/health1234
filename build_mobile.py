@@ -724,6 +724,10 @@ def parse_config(wb):
             "inc":   num(gr.cell(m["inc_row"], 3).value),
             "sets":  int(num(re.sub(r"\D+", " ", s(st.cell(m["start_row"], 6).value))
                              .split()[-1], 1)),
+            # 본세트 반복 — F열 '8회 × 4세트'의 첫 숫자. 벤치(2026-10-02) · 프레스(2026-10-21)가
+            # 8회로 바뀌었는데 카드가 5회로 고정돼 있었다
+            "reps":  int(num(re.sub(r"\D+", " ", s(st.cell(m["start_row"], 6).value))
+                             .split()[0], 5)),
             # 증량 주기(주). 프레스만 2 — 봉 전체 1kg이 최소 계단이라 매주 올리면 두 배 반이 된다
             "every": max(1, int(num(gr.cell(m["inc_row"], 5).value, 1))),
         }
@@ -1464,7 +1468,7 @@ function liftCard(key,week,sets,name){
   return `<section class="lift" style="--accent:${L.accent}">
     <div class="lift-top">
       <div class="lift-name"><div class="eyebrow">MAIN LIFT</div><h3>${esc(name||L.ko)}</h3>
-        <p class="num">5년 전 ${fmt(L.prev)}kg · 본세트 5회 × ${ws}세트${ws!==L.sets?` <span style="color:var(--dim)">(설계 ${L.sets})</span>`:""}</p></div>
+        <p class="num">5년 전 ${fmt(L.prev)}kg · 본세트 ${L.reps}회 × ${ws}세트${ws!==L.sets?` <span style="color:var(--dim)">(설계 ${L.sets})</span>`:""}</p></div>
       <div class="bigw ${OV.lifts[key]?'edited':''}" data-lift="${key}"><b class="num">${fmt(work)}</b><i>kg</i>${
         OV.lifts[key]?`<span class="ovnote">수정됨 · 엑셀 기준 ${fmt(xlWeight(key,week))}kg</span>`:""}</div>
     </div>
@@ -1473,7 +1477,7 @@ function liftCard(key,week,sets,name){
       <div class="h">웜업 램프</div><div class="h" style="text-align:right">반복</div><div class="h" style="text-align:right">세트</div>
       ${rp}
       <div class="work r-w">${fmt(work)}<span style="font-size:11px;color:var(--mute)"> kg</span></div>
-      <div class="work r-x num">5회</div><div class="work r-x num">${ws}세트</div>
+      <div class="work r-x num">${L.reps}회</div><div class="work r-x num">${ws}세트</div>
     </div>
     ${dlOn()?`<div class="lift-log"><div class="lift-log-h">디로드 주 — 결과를 적지 않는다 <span>· 지난주와 같은 ${week}주차 칸이라 적으면 지난주 기록을 덮는다</span></div></div>`
       :liftLogHTML(key,week)}</section>`;
@@ -2049,7 +2053,7 @@ function progressHTML(week){
       cur&&cur.cycle===c?" · 지금":""}</span></div>
     ${keys.map(k=>{ const dl=deloadNote(k,c);
       return `<div class="log-row" style="--accent:${LIFT[k].accent}">
-      <div class="log-l"><b>${esc(LIFT[k].ko)}</b><span class="num">${fmt(workWeight(k,c))}kg × 5회 × ${LIFT[k].sets}세트${
+      <div class="log-l"><b>${esc(LIFT[k].ko)}</b><span class="num">${fmt(workWeight(k,c))}kg × ${LIFT[k].reps}회 × ${LIFT[k].sets}세트${
         missRun(k,c)>0?" · 앞 주 미달로 유지":""}</span>${dl?`<em>${esc(dl)}</em>`:""}</div>
       ${logCtl(k,c)}</div>`; }).join("")}
     <div class="log-row"><div class="log-l"><b>다음날 피로</b><span>0 가뿐 · 3 뻐근하지만 훈련 가능 · 5 탈진. 다음 세션 아침에</span></div>

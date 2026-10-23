@@ -115,6 +115,8 @@ TRACK_KEYS = {_n: _k for _k, _ko, _d, _n in _ACC}
 # 전 세트 상한이면 앱 버튼으로 한 단계 — 무게 칸 글자 자체가 단계다('55 + 핀 + 1').
 # pin   = 스택(케이블 · 머신): 칸 → 칸 + 핀 → + 핀 + 1 → + 핀 + 2.5 → 핀 한 칸 내리고 원판 뺌
 # wrist = 덤벨: 덤벨 → + 손목 1 → 다음 덤벨 (모래주머니 한쪽 1kg 고정)
+# assist = 어시스트 머신: 스택이 도와주는 무게라 거꾸로 간다 — 한 칸 가벼운 칸에 핀으로 얹었다가 덜어 낸다
+#          45 → 40 + 핀 + 2.5 → 40 + 핀 + 1 → 40 + 핀 → 40 → …
 MICRO = {
     "원암 케이블 서라투스 펀치": "pin", "시티드 케이블 로우": "pin", "원암 케이블 로우": "pin",
     "케이블 오버헤드 익스텐션 (로프)": "pin", "원암 케이블 레터럴 레이즈": "pin",
@@ -124,6 +126,8 @@ MICRO = {
     "암풀다운": "pin", "페이스풀(로프)": "pin", "로프 푸쉬다운": "pin",
     "케이블 드래그 컬": "pin", "벤트오버 레터럴 레이즈 머신": "pin",
     "시티드 레터럴 레이즈": "wrist",
+    "펙덱 플라이": "pin",
+    "친업 (어시스트 가능)": "assist",
 }
 
 
@@ -1604,6 +1608,7 @@ function exHTML(e,prefix,sets,timed){
    핀 무게는 재지 않는다 — 늘 같은 핀이라 지난주와 비교하는 데 숫자가 필요 없다.
    마지막 단계 다음(스택 한 칸 · 다음 덤벨)은 기계마다 칸 크기가 달라 숫자를 직접 받는다 */
 const MIC_RE = {
+  assist: /^(\d+(?:\.\d+)?)\s*(?:kg)?\s*(?:\+\s*핀\s*(?:\+\s*(\d+(?:\.\d+)?)\s*)?)?$/,
   pin:   /^(\d+(?:\.\d+)?)\s*(?:kg)?\s*(?:\+\s*핀\s*(?:\+\s*(\d+(?:\.\d+)?)\s*)?)?$/,
   wrist: /^(\d+(?:\.\d+)?)\s*(?:kg)?\s*(?:\+\s*손목\s*(\d+(?:\.\d+)?)\s*)?$/,
 };
@@ -1616,6 +1621,12 @@ function micStep(kind,w,dir){
     if(dir<0) return i>0?{w:L[i-1]}:null;
     return i<3?{w:L[i+1]}:{wrap:true, w:b+" + 핀", say:"핀을 스택 한 칸 아래로 · 원판 빼기 — 새 칸 숫자로 고치세요"};
   }
+  if(kind==="assist"){
+    const L=[b+" + 핀 + 2.5", b+" + 핀 + 1", b+" + 핀", b];
+    const i=!pinOn?3:x===0?2:x<2.5?1:0;
+    if(dir<0) return i>0?{w:L[i-1]}:null;
+    return i<3?{w:L[i+1]}:{wrap:true, w:b+" + 핀 + 2.5", say:"어시스트 한 칸 가볍게 · 핀 + 2.5 — 새 칸 숫자로 고치세요"};
+  }
   /* 모래주머니는 한쪽 1kg 고정(조절형 아님 · 2026-10-24) — 단계가 하나뿐이다 */
   if(dir<0) return x>0?{w:b}:null;
   return x===0?{w:b+" + 손목 1"}:{wrap:true, w:b, say:"다음 덤벨로 · 손목 빼기 — 덤벨 무게로 고치세요"};
@@ -1623,7 +1634,7 @@ function micStep(kind,w,dir){
 function micHTML(e,key,w){
   if(!e.mic||e.trk) return "";
   const up=micStep(e.mic,w,1), dn=micStep(e.mic,w,-1);
-  if(!up) return `<div class="ex-go mic"><span class="tm-none">미세 단계 — 무게를 '${e.mic==="pin"?"55 + 핀 + 1":"8 + 손목 1"}' 꼴로 적으면 버튼이 뜬다</span></div>`;
+  if(!up) return `<div class="ex-go mic"><span class="tm-none">미세 단계 — 무게를 '${e.mic==="wrist"?"8 + 손목 1":"55 + 핀 + 1"}' 꼴로 적으면 버튼이 뜬다</span></div>`;
   const top=(String(e.r).match(/~\s*(\d+)/)||[])[1];
   return `<div class="ex-go mic"><button class="tm-go" data-mic="${escAttr(key)}">&#9650; ${top?`전 세트 ${top}회 →`:"상한 채움 →"}<b>${esc(up.wrap?"다음 칸":up.w)}</b></button>${
     dn?`<button class="tm-go mic-dn" data-micdn="${escAttr(key)}" aria-label="한 단계 내리기">&#9660;</button>`:""}</div>`;

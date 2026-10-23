@@ -166,7 +166,9 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 [data-lift]{cursor:pointer}
 .ex-w[data-exkey]{border-bottom:1px dotted var(--dim);cursor:pointer;padding-bottom:1px}
 .ex-w.edited{color:var(--bp);border-bottom-color:var(--bp)}
-.ex-go.mic{display:flex;gap:6px;align-items:center}
+.ex-go.mic{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.mic-cap{flex:1 1 180px;font-size:11px;line-height:1.45;color:var(--dim)}
+#tm-rec .mic-cap{flex-basis:100%;text-align:center}
 .mg .wu{color:var(--sq)}
 .tm-wu{display:inline-block;margin-top:8px;padding:5px 12px;border-radius:999px;font-size:13.5px;
   font-weight:800;color:var(--bg);background:var(--sq)}
@@ -594,13 +596,15 @@ function micStep(kind,w,dir){
   if(dir<0) return x>0?{w:b}:null;
   return x===0?{w:b+" + 손목 1"}:{wrap:true, w:b, say:"다음 덤벨로 · 손목 빼기 — 덤벨 무게로 고치세요"};
 }
+/* 조건형 상한 (2026-10-24 사용자 결정) — 숫자로 막지 않는다. ▲ 누르기 전에 이 중 하나라도 있으면 무게 대신 반복으로 */
+const MIC_CAP=`<span class="mic-cap">반동 · 가동범위 줄어듦 · 다른 근육이 먼저 지침 · 관절 통증 — 하나라도 있으면 ▲ 대신 반복</span>`;
 function micHTML(e,key,w){
   if(!e.mic||e.trk) return "";
   const up=micStep(e.mic,w,1), dn=micStep(e.mic,w,-1);
   if(!up) return `<div class="ex-go mic"><span class="tm-none">미세 단계 — 무게를 '${e.mic==="wrist"?"8 + 손목 1":"55 + 핀 + 1"}' 꼴로 적으면 버튼이 뜬다</span></div>`;
   const top=(String(e.r).match(/~\s*(\d+)/)||[])[1];
   return `<div class="ex-go mic"><button class="tm-go" data-mic="${escAttr(key)}">&#9650; ${top?`전 세트 ${top}회 →`:"상한 채움 →"}<b>${esc(up.wrap?"다음 칸":up.w)}</b></button>${
-    dn?`<button class="tm-go mic-dn" data-micdn="${escAttr(key)}" aria-label="한 단계 내리기">&#9660;</button>`:""}</div>`;
+    dn?`<button class="tm-go mic-dn" data-micdn="${escAttr(key)}" aria-label="한 단계 내리기">&#9660;</button>`:""}${MIC_CAP}</div>`;
 }
 function setExW(key,v){
   const e=exByKey(key); if(!e) return;

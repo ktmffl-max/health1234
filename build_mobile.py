@@ -99,6 +99,10 @@ _ACC = [  # 키, 앱 이름, 요일, 종목표 이름 — 시작중량_설정 11
     ("ohs",   "오버헤드 슈러그",     "목", "오버헤드 슈러그(스미스)"),
     ("scap",  "스캡 슈러그",        "일", "해머 스트랭스 스캡 슈러그(중립 그립)"),
     ("prot",  "프로트랙션",         "월", "스미스 프로트랙션"),
+    # 셋째 묶음 — 봉만 있는 EZ바 + 원판으로 바꾼다. 봉 무게를 몰라 봉 포함 총무게(지금 15)로 적는다
+    ("lying", "라잉 트라이셉스",     "화", "라잉 트라이셉스 익스텐션"),
+    ("rcurl", "리버스컬",           "화", "리버스컬"),
+    ("incb",  "인클라인 바벨",       "목", "인클라인 벤치프레스(바벨)"),
 ]
 for _i, (_k, _ko, _d, _n) in enumerate(_ACC):
     LIFT_META[_k] = {"ko": _ko, "start_row": 11 + _i, "inc_row": 9 + _i, "accent": "var(--ink)",
@@ -636,7 +640,7 @@ def parse_anchor(wb):
     if "증량기록" not in wb.sheetnames:
         return None
     ws = wb["증량기록"]
-    hdr = next((r for r in range(1, 20)
+    hdr = next((r for r in range(1, 60)
                 if s(ws.cell(r, 1).value) in ("주차", "사이클")), None)
     if hdr is None:
         return None
@@ -767,9 +771,9 @@ def parse_config(wb):
     weeks, base = 0, 0
     # 머리글('주차') 다음 줄부터 센다 — 머리글 자체도 '주차'로 끝나 첫 줄로 잡힌다.
     # 2026-10-23 설정 두 줄(보조 추적)이 들어와 표가 12행으로 내려갔다
-    hdr = next((r for r in range(1, 20)
+    hdr = next((r for r in range(1, 60)
                 if s(gr.cell(r, 1).value) in ("주차", "사이클")), 9)
-    for r in range(hdr + 1, 80):
+    for r in range(hdr + 1, hdr + 120):
         lab = s(gr.cell(r, 1).value)
         if lab.endswith(("사이클", "주차")):
             if not weeks:
@@ -813,7 +817,7 @@ def parse_back_anchor(wb):
 def parse_progress_notes(wb):
     """표 아래 해설. 표 길이가 바뀌므로 머리글을 찾아 표 끝 다음 줄부터 훑는다."""
     ws = wb["증량기록"]
-    hdr = next((r for r in range(1, 20)
+    hdr = next((r for r in range(1, 60)
                 if s(ws.cell(r, 1).value) in ("주차", "사이클")), 9)
     r = hdr + 1
     while r <= ws.max_row and re.match(r"\d+", s(ws.cell(r, 1).value)):
@@ -831,7 +835,7 @@ def parse_log(wb):
     if "증량기록" not in wb.sheetnames:
         return {}
     ws = wb["증량기록"]
-    hdr = next((r for r in range(1, 20)
+    hdr = next((r for r in range(1, 60)
                 if s(ws.cell(r, 1).value) in ("주차", "사이클")), None)
     if hdr is None:
         return {}

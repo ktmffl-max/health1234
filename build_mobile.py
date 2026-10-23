@@ -1335,6 +1335,10 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
   line-height:1.55;min-height:3.2em}   /* 두 줄분을 늘 비워 둔다 — 종목이 바뀔 때
                                           한 줄이 늘어나며 다이얼이 들썩이지 않게 */
 .tm-up b{color:var(--mute);font-weight:700;font-size:13.5px}
+#tm-rec{margin-top:12px;min-height:38px;display:flex;flex-direction:column;align-items:center;gap:6px}
+#tm-rec .seg{justify-content:center;max-width:none}
+#tm-rec .ex-go{margin:0;justify-content:center}
+.tm-rec-h{font-size:12px;font-weight:700;color:var(--mute)}
 .tm-up i{display:block;font-style:normal;font-variant-numeric:tabular-nums}
 </style>
 </head>
@@ -1365,6 +1369,7 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
     <p id="tm-meta"></p>
     <div class="tm-dial" id="tm-dial"><span id="tm-phase"></span><b id="tm-time">00:00</b></div>
     <p id="tm-set"></p>
+    <div id="tm-rec"></div>
   </div>
   <div class="tm-ctl">
     <button id="tm-prev">&#9664; 이전</button>
@@ -1589,6 +1594,7 @@ function exHTML(e,prefix,sets,timed){
     ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${e.wk}초 · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
     ${micHTML(e,key,w)}
+    ${e.trk&&LIFT[e.lift]&&!dlOn()?liftLogHTML(e.lift,week):""}
     ${e.memo?`<div class="ex-memo">${esc(e.memo)}</div>`:""}
     ${e.alt?`<details><summary>대체 종목</summary><p>${esc(e.alt)}</p></details>`:""}</article>`;
 }
@@ -1627,10 +1633,12 @@ function setExW(key,v){
   if(!v||v===e.w) delete OV.ex[key]; else OV.ex[key]={w:v, base:e.w};
   saveOV();
 }
-function micGo(key,dir){
+function micGo(key,dir,tmEl){
   const e=exByKey(key); if(!e) return;
   const nx=micStep(e.mic, OV.ex[key]?OV.ex[key].w:e.w, dir); if(!nx) return;
-  if(!nx.wrap){ setExW(key,nx.w); render(); return; }
+  if(!nx.wrap){ setExW(key,nx.w); render(); if(TM) tmPaint(); return; }
+  /* 타이머에서는 위 무게 칸에서 바로 고친다 — 뒤 화면의 카드는 가려져 있다 */
+  if(tmEl) return editEx(tmEl,key,()=>{ tmEl.innerHTML=""; tmPaint(); },nx.w,nx.say);
   const el=[...document.querySelectorAll("[data-exkey]")].find(x=>x.dataset.exkey===key);
   if(el) editEx(el,key,null,nx.w,nx.say);
 }
@@ -2625,6 +2633,21 @@ document.addEventListener("visibilitychange",()=>{
 function tmKey(e){
   return ((e.w==="위 참조"||e.trk)&&e.lift) ? "lift|"+e.lift : "ex|"+mode+"|"+tab+"|"+e.name;
 }
+/* 타이머 안 기록 — 지금 종목에 맞는 것 하나. 메인 · 선형 추적은 달성/미달(증량 탭과 같은 저장소),
+   케이블 · 레터럴은 미세 단계 ▲▼. 속성 이름을 바꿔 둔다(data-t…) — render()의 bindEdits가
+   같은 이름이면 타이머 버튼에도 onclick을 달아 아래 위임 처리와 두 번 눌린다 */
+function tmRec(e){
+  if(e.mic&&!e.trk){ const key=mode+"|"+tab+"|"+e.name;
+    return micHTML(e,key,OV.ex[key]?OV.ex[key].w:e.w).replace(/data-mic/g,"data-tmic"); }
+  const k=e.lift;
+  if(!k||!LIFT[k]||e.lo||e.pct||!(e.w==="위 참조"||e.trk)||dlOn()) return "";
+  return (`<div class="tm-rec-h">이번 주 결과 · ${week}주차</div>`+logCtl(k,week)).replace(/data-log/g,"data-tlog");
+}
+function tmRecSet(html){
+  const el=document.getElementById("tm-rec"), a=document.activeElement;
+  if(a&&a.tagName==="INPUT"&&el.contains(a)) return;      /* 미달 회수 치는 중 */
+  el.innerHTML=html;
+}
 function tmMeta(e){
   const key=tmKey(e), p=key.split("|");
   const ov = p[0]==="lift" ? OV.lifts[p[1]] : OV.ex[p.slice(1).join("|")];
@@ -2655,6 +2678,7 @@ function tmPaint(){
   document.getElementById("tm-name").textContent=s.e.name;
   tmSet("tm-meta",tmMeta(s.e));
   document.getElementById("tm-set").textContent="세트 "+s.set+" / "+s.sets+(s.drop?" · 드롭세트":"");
+  tmRecSet(tmRec(s.e));
   document.getElementById("tm-time").textContent=
     mmss(TM.run?Math.max(0,Math.ceil((TM.endAt-Date.now())/1000)):Math.ceil(TM.rest/1000));
   document.getElementById("tm-play").textContent=TM.run?"일시정지":"계속";
@@ -2857,8 +2881,23 @@ tmMuteBtn.onclick=()=>{
 /* 두 줄 다 tmPaint가 매번 새로 그리므로 개별 onclick은 붙자마자 사라진다 */
 document.getElementById("tm").addEventListener("click",ev=>{
   const el=ev.target.closest("[data-tmw]");
-  if(el) tmEditW(el);
+  if(el) return tmEditW(el);
+  const mb=ev.target.closest("[data-tmic],[data-tmicdn]");
+  if(mb){ const up=mb.dataset.tmic!=null;
+    return micGo(up?mb.dataset.tmic:mb.dataset.tmicdn, up?1:-1, document.querySelector("#tm-meta [data-tmw]")); }
+  const lb=ev.target.closest("[data-tlogv]");
+  if(lb){ const seg=lb.closest(".seg"), k=seg.dataset.tlogk, c=seg.dataset.tlogc, v=lb.dataset.tlogv;
+    const cur=logVal(c,k), same = v==="O" ? (cur!==""&&isDone(cur)) : (cur!==""&&!isDone(cur));
+    setLog(c,k, same?"":v); render(); tmPaint();
+    if(!same&&v==="X"){ const i=document.querySelector("#tm-rec input"); if(i) i.focus(); } }
 });
+document.getElementById("tm").addEventListener("change",ev=>{
+  const i=ev.target; if(!i.dataset||!i.dataset.tlogrep) return;
+  const seg=i.closest(".seg"); setLog(seg.dataset.tlogc, seg.dataset.tlogk, i.value.replace(/\D/g,"")||"X");
+  i.blur(); render(); tmPaint();
+});
+document.getElementById("tm").addEventListener("keydown",ev=>{
+  if(ev.key==="Enter"&&ev.target.dataset&&ev.target.dataset.tlogrep) ev.target.blur(); });
 document.getElementById("tm-x").onclick=tmClose;
 document.getElementById("tm-play").onclick=tmPause;
 document.getElementById("tm-next").onclick=()=>tmGo(1);

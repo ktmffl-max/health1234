@@ -86,14 +86,26 @@ LIFT_META = {                      # 시작중량_설정 행 / 증량기록 행
     "press": {"ko": "밀리터리 프레스", "start_row": 10, "inc_row": 8, "accent": "var(--mp)", "head": "프레스 목표"},
     # 2026-10-23 사용자 결정 — 보조 종목 둘을 매주 +1kg 선형으로. 원판식 기구라 1kg 격자가 그대로 맞는다.
     # 메인 카드(웜업 램프 · 봉 원판 그림)는 없고 종목표의 그 줄 중량만 주차를 따라간다 — acc
-    "row":     {"ko": "해머 로우",     "start_row": 11, "inc_row": 9,  "accent": "var(--ink)",
-                "head": "해머 로우 목표", "acc": True},
-    "incline": {"ko": "인클라인 머신", "start_row": 12, "inc_row": 10, "accent": "var(--ink)",
-                "head": "인클라인 머신 목표", "acc": True},
+    # 2026-10-23 같은 날 둘째 묶음 — 주기는 종목마다(E열 · 1~3주). 스미스 · 머신은 원판만 센 무게다
+    # (봉 무게를 모른다 · 원판만 세면 '5로 나눈 나머지 4' 규칙이 봉과 상관없이 맞는다)
 }
+_ACC = [  # 키, 앱 이름, 요일, 종목표 이름 — 시작중량_설정 11행 · 증량기록 9행부터 이 순서
+    ("row",   "해머 로우",          "일", "해머 스트랭스 로우(오버그립)"),
+    ("incline", "인클라인 머신",     "월", "인클라인 벤치프레스 머신"),
+    ("lp",    "레그 프레스",        "토", "레그 프레스"),
+    ("lph",   "레그 프레스 발 높게", "수", "레그 프레스 (발 높게)"),
+    ("rdl",   "루마니안",           "수", "루마니안 데드리프트"),
+    ("hip",   "힙 쓰러스트",        "화", "힙 쓰러스트"),
+    ("ohs",   "오버헤드 슈러그",     "목", "오버헤드 슈러그(스미스)"),
+    ("scap",  "스캡 슈러그",        "일", "해머 스트랭스 스캡 슈러그(중립 그립)"),
+    ("prot",  "프로트랙션",         "월", "스미스 프로트랙션"),
+]
+for _i, (_k, _ko, _d, _n) in enumerate(_ACC):
+    LIFT_META[_k] = {"ko": _ko, "start_row": 11 + _i, "inc_row": 9 + _i, "accent": "var(--ink)",
+                     "head": _ko + " 목표", "acc": True, "day": _d}
 
 # 추적 보조 종목 — 종목표의 이 이름 줄이 그 리프트다('메인:' 줄 없이)
-TRACK_KEYS = {"해머 스트랭스 로우(오버그립)": "row", "인클라인 벤치프레스 머신": "incline"}
+TRACK_KEYS = {_n: _k for _k, _ko, _d, _n in _ACC}
 
 
 def pick_latest(folder):
@@ -748,6 +760,7 @@ def parse_config(wb):
             # 사다리가 출발하는 주차(F열). 비면 표 첫 줄 — 보조 둘은 13주차에 들어왔다
             "from":  int(num(gr.cell(m["inc_row"], 6).value, 0)) or None,
             "acc":   bool(m.get("acc")),
+            "day":   m.get("day", ""),
         }
     # 표의 줄 수와 첫 줄의 번호. 2026-09-13 주 단위 전환으로 표가 6주차에서 시작한다 —
     # '몇 번째 줄'과 '몇 주차'가 더는 같지 않으므로 base를 같이 실어 보낸다
@@ -1525,7 +1538,7 @@ const escAttr = t => esc(t).replace(/"/g,"&quot;");
 /* 백오프 행의 중량 — 톱세트 − lo(kg) 또는 톱세트 × pct(1kg 반올림 · 엑셀 MROUND와 같다).
    엑셀 캐시값이 아니라 지금 주차에서 낸다 */
 /* 추적 보조 종목(해머 로우 · 인클라인 머신)은 그 줄 자체가 리프트다 — 사다리 값 그대로 */
-const exW = e => (e.trk&&LIFT[e.lift]) ? fmt(workWeight(e.lift,week))+"kg"
+const exW = e => (e.trk&&LIFT[e.lift]) ? (workWeight(e.lift,week)===0 ? "빈 바" : fmt(workWeight(e.lift,week))+"kg")
   : ((e.lo||e.pct)&&e.lift&&LIFT[e.lift])
   ? fmt(Math.max(20, e.pct ? Math.round(workWeight(e.lift,week)*e.pct)
                            : workWeight(e.lift,week)-e.lo))+"kg" : e.w;
@@ -1766,7 +1779,7 @@ function backCalHTML(){
     <p class="daysub">'시작중량_설정' 시트 아래 <b>복귀 운용</b> 칸(복귀 시작일 · 시작 사이클 · 사이클 전진)을
       채우면 여기서 주차 · 사이클 · 중량이 자동으로 나온다.</p>`;
   const now=new Date(), tKey=ymd(now), cur=backWeekOf(tKey);
-  const keys=Object.keys(LIFT), SLOTS=D.backOrder;
+  const keys=Object.keys(LIFT).filter(k=>!LIFT[k].acc), SLOTS=D.backOrder;
   const ym=calYM||{y:now.getFullYear(),m:now.getMonth()};
   const first=new Date(ym.y,ym.m,1), last=new Date(ym.y,ym.m+1,0);
   /* 주 6회 요일 고정 (2026-10-02). dow: 0=일 … 6=토. 금(5)만 휴식이다.
@@ -2071,18 +2084,27 @@ function prepHTML(){
     <td class="wrap">${esc(r[2])}</td><td class="wrap">${esc(r[3])}</td></tr>`).join("")}
   </tbody></table>${notesHTML(H.notes)}`:""}`;
 }
+/* 그 주 다음으로 무게가 실제로 오르는 주차 — 주기 2 · 3인 보조 종목에서 '언제 오르나'가 정보다 */
+function nextUp(k,c){ const v=workWeight(k,c); for(let w=c+1;w<=WLAST;w++) if(workWeight(k,w)!==v) return w; return 0; }
 function progressHTML(week){
-  const keys=Object.keys(LIFT), c=week, fat=logVal(c,"fat");
+  /* 메인 넷은 표로 · 보조(2026-10-23 · 9종목)는 요일별 목록으로 — 13열 표는 폰에서 안 읽힌다 */
+  const all=Object.keys(LIFT), keys=all.filter(k=>!LIFT[k].acc), acc=all.filter(k=>LIFT[k].acc);
+  const c=week, fat=logVal(c,"fat");
+  const kgOf = (k,w) => { const v=workWeight(k,w); return v===0&&LIFT[k].acc ? "빈 바" : fmt(v)+"kg"; };
   /* 날짜·'지금'은 재택 일차 회전에서 나온다. 복귀는 달력이 주차를 세므로 붙이지 않는다 */
   const bk=mode==="back", cur=bk?null:cycleOf(ymd(new Date())), date=bk?null:cycleDate(c);
   const card=`<section class="logcard">
     <div class="logcard-h"><b>${c}주차 기록</b><span>${date?`${+date.slice(5,7)}/${+date.slice(8)} 시작`:""}${
       cur&&cur.cycle===c?" · 지금":""}</span></div>
-    ${keys.map(k=>{ const dl=deloadNote(k,c);
-      return `<div class="log-row" style="--accent:${LIFT[k].accent}">
-      <div class="log-l"><b>${esc(LIFT[k].ko)}</b><span class="num">${fmt(workWeight(k,c))}kg × ${LIFT[k].reps}회 × ${LIFT[k].sets}세트${
-        missRun(k,c)>0?" · 앞 주 미달로 유지":""}</span>${dl?`<em>${esc(dl)}</em>`:""}</div>
-      ${logCtl(k,c)}</div>`; }).join("")}
+    ${(()=>{ const row = k => { const dl=deloadNote(k,c), L=LIFT[k], nx=L.acc?nextUp(k,c):0;
+      return `<div class="log-row" style="--accent:${L.accent}">
+      <div class="log-l"><b>${esc(L.ko)}</b><span class="num">${kgOf(k,c)} × ${L.reps}회 × ${L.sets}세트${
+        missRun(k,c)>0?" · 앞 주 미달로 유지":""}${L.acc&&L.every>1?` · ${L.every}주마다${nx?` · 다음 ${nx}주차`:""}`:""}</span>${dl?`<em>${esc(dl)}</em>`:""}</div>
+      ${logCtl(k,c)}</div>`; };
+      const days=[..."토일월화수목"].filter(d=>acc.some(k=>LIFT[k].day===d));
+      return keys.map(row).join("") + days.map(d=>
+        `<div class="log-row" style="padding-top:14px"><div class="log-l"><b style="color:var(--mute)">보조 · ${d}</b></div></div>`+
+        acc.filter(k=>LIFT[k].day===d&&c>=(LIFT[k].from||WBASE)).map(row).join("")).join(""); })()}
     <div class="log-row"><div class="log-l"><b>다음날 피로</b><span>0 가뿐 · 3 뻐근하지만 훈련 가능 · 5 탈진. 다음 세션 아침에</span></div>
       <div class="seg fat">${[0,1,2,3,4,5].map(n=>`<button class="${fat===String(n)?'on':''}" data-logf="fat" data-logc="${c}" data-logv="${n}">${n}</button>`).join("")}</div></div>
     <div class="log-row"><div class="log-l"><b>관절 이상</b><span>없으면 비워둔다 · 부위와 0~10</span></div>
@@ -2114,8 +2136,8 @@ function progressHTML(week){
     <ul>${mine.map(t=>`<li>${esc(t)}</li>`).join("")}</ul>
     <button id="log-copy" class="plain">전체 기록 텍스트로 복사</button>
     <details class="log-text"><summary>복사가 안 되면 여기서 길게 눌러 복사</summary><pre>${esc(lines.join("\n"))}</pre></details></div>`:""}
-  <div class="notes"><h5>주당 증량폭</h5><ul>${keys.map(k=>
-    `<li>${esc(LIFT[k].ko)} ${fmt(LIFT[k].inc)}kg</li>`).join("")}</ul><p class="footnote">한쪽 원판이 2.5 · 1 · 0.5kg 하나씩이라 총 중량이 5로 나눈 나머지 4면 못 끼운다 — 그 칸은 자동으로 1kg 올라가므로 폭이 칸마다 조금씩 다르다.</p></div>
+  <div class="notes"><h5>주당 증량폭</h5><ul>${all.map(k=>
+    `<li>${esc(LIFT[k].ko)} ${fmt(LIFT[k].inc)}kg${LIFT[k].every>1?` · ${LIFT[k].every}주마다`:""}${LIFT[k].acc?` · ${LIFT[k].day}`:""}</li>`).join("")}</ul><p class="footnote">한쪽 원판이 2.5 · 1 · 0.5kg 하나씩이라 총 중량이 5로 나눈 나머지 4면 못 끼운다 — 그 칸은 자동으로 1kg 올라가므로 폭이 칸마다 조금씩 다르다.</p></div>
   ${notesHTML(D.progressNotes)}`;
 }
 /* 사이클별 한 줄 — 엑셀 증량기록에 옮겨 적기 위한 텍스트. 기록이 있는 사이클만 */

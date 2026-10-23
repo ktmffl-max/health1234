@@ -111,6 +111,21 @@ for _i, (_k, _ko, _d, _n) in enumerate(_ACC):
 # 추적 보조 종목 — 종목표의 이 이름 줄이 그 리프트다('메인:' 줄 없이)
 TRACK_KEYS = {_n: _k for _k, _ko, _d, _n in _ACC}
 
+# 2026-10-24 사용자 결정 — 케이블 · 레터럴은 반복 범위 그대로 두고 칸만 쪽낸다(선형 아님).
+# 전 세트 상한이면 앱 버튼으로 한 단계 — 무게 칸 글자 자체가 단계다('55 + 핀 + 1').
+# pin   = 스택(케이블 · 머신): 칸 → 칸 + 핀 → + 핀 + 1 → + 핀 + 2.5 → 핀 한 칸 내리고 원판 뺌
+# wrist = 덤벨: 덤벨 → + 손목 1 → 다음 덤벨 (모래주머니 한쪽 1kg 고정)
+MICRO = {
+    "원암 케이블 서라투스 펀치": "pin", "시티드 케이블 로우": "pin", "원암 케이블 로우": "pin",
+    "케이블 오버헤드 익스텐션 (로프)": "pin", "원암 케이블 레터럴 레이즈": "pin",
+    "원암 케이블 리버스 플라이": "pin", "레터럴 레이즈": "pin",      # 월 7번은 머신
+    "케이블 힙 외전": "pin", "와이드 오버그립 랫풀다운": "pin",
+    "랫풀다운(언더그립 좁게 안쪽으로)": "pin", "디클라인 케이블 플라이": "pin",
+    "암풀다운": "pin", "페이스풀(로프)": "pin", "로프 푸쉬다운": "pin",
+    "케이블 드래그 컬": "pin", "벤트오버 레터럴 레이즈 머신": "pin",
+    "시티드 레터럴 레이즈": "wrist",
+}
+
 
 def pick_latest(folder):
     """폴더에서 가장 최근에 수정된 워크북을 고른다. 엑셀 임시파일(~$)은 무시."""
@@ -432,6 +447,8 @@ def parse_day(ws):
             lift = main_of.get(item["name"])
             # 재택 시트에도 같은 이름이 있다(45kg · 8~10) — 추적은 복귀판에서만
             trk = TRACK_KEYS.get(item["name"]) if ws.title.startswith("복귀") else None
+            if ws.title.startswith("복귀") and item["name"] in MICRO:
+                item["mic"] = MICRO[item["name"]]
             if trk:
                 # 중량은 앱이 주차로 낸다 — 엑셀 캐시값은 C4가 늦으면 지난 주 값이다
                 item["lift"], item["trk"] = trk, True
@@ -1185,6 +1202,8 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 [data-lift]{cursor:pointer}
 .ex-w[data-exkey]{border-bottom:1px dotted var(--dim);cursor:pointer;padding-bottom:1px}
 .ex-w.edited{color:var(--bp);border-bottom-color:var(--bp)}
+.ex-go.mic{display:flex;gap:6px;align-items:center}
+.mic-dn{padding-left:10px;padding-right:10px}
 .bigw.edited b{color:var(--bp)}
 .ovnote{display:block;font-size:10px;font-weight:700;color:var(--bp);margin-top:5px;line-height:1.3}
 .w-input{font:inherit;font-weight:700;background:var(--raised);color:var(--ink);
@@ -1569,8 +1588,51 @@ function exHTML(e,prefix,sets,timed){
       <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${wEd?'edited':''}"${wAttr}>${esc(w)}</span></div></div>
     ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${e.wk}초 · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
+    ${micHTML(e,key,w)}
     ${e.memo?`<div class="ex-memo">${esc(e.memo)}</div>`:""}
     ${e.alt?`<details><summary>대체 종목</summary><p>${esc(e.alt)}</p></details>`:""}</article>`;
+}
+/* ── 미세 단계 (케이블 · 레터럴) ──────────────────────────────────
+   반복 범위는 그대로고, 전 세트가 상한이면 한 단계 올린다. 단계는 무게 칸 글자 그 자체다 —
+   '55 + 핀 + 1'. 바꾼 값은 다른 수정과 같이 이 폰 덮어쓰기에 남고, 엑셀에 옮겨 적으면 저절로 빠진다.
+   핀 무게는 재지 않는다 — 늘 같은 핀이라 지난주와 비교하는 데 숫자가 필요 없다.
+   마지막 단계 다음(스택 한 칸 · 다음 덤벨)은 기계마다 칸 크기가 달라 숫자를 직접 받는다 */
+const MIC_RE = {
+  pin:   /^(\d+(?:\.\d+)?)\s*(?:kg)?\s*(?:\+\s*핀\s*(?:\+\s*(\d+(?:\.\d+)?)\s*)?)?$/,
+  wrist: /^(\d+(?:\.\d+)?)\s*(?:kg)?\s*(?:\+\s*손목\s*(\d+(?:\.\d+)?)\s*)?$/,
+};
+function micStep(kind,w,dir){
+  const m=String(w).match(MIC_RE[kind]); if(!m) return null;
+  const b=m[1], pinOn=/핀/.test(w), x=m[2]?Number(m[2]):0;
+  if(kind==="pin"){
+    const L=[b, b+" + 핀", b+" + 핀 + 1", b+" + 핀 + 2.5"];
+    const i=!pinOn?0:x===0?1:x<2.5?2:3;
+    if(dir<0) return i>0?{w:L[i-1]}:null;
+    return i<3?{w:L[i+1]}:{wrap:true, w:b+" + 핀", say:"핀을 스택 한 칸 아래로 · 원판 빼기 — 새 칸 숫자로 고치세요"};
+  }
+  /* 모래주머니는 한쪽 1kg 고정(조절형 아님 · 2026-10-24) — 단계가 하나뿐이다 */
+  if(dir<0) return x>0?{w:b}:null;
+  return x===0?{w:b+" + 손목 1"}:{wrap:true, w:b, say:"다음 덤벨로 · 손목 빼기 — 덤벨 무게로 고치세요"};
+}
+function micHTML(e,key,w){
+  if(!e.mic||e.trk) return "";
+  const up=micStep(e.mic,w,1), dn=micStep(e.mic,w,-1);
+  if(!up) return `<div class="ex-go mic"><span class="tm-none">미세 단계 — 무게를 '${e.mic==="pin"?"55 + 핀 + 1":"8 + 손목 1"}' 꼴로 적으면 버튼이 뜬다</span></div>`;
+  const top=(String(e.r).match(/~\s*(\d+)/)||[])[1];
+  return `<div class="ex-go mic"><button class="tm-go" data-mic="${escAttr(key)}">&#9650; ${top?`전 세트 ${top}회 →`:"상한 채움 →"}<b>${esc(up.wrap?"다음 칸":up.w)}</b></button>${
+    dn?`<button class="tm-go mic-dn" data-micdn="${escAttr(key)}" aria-label="한 단계 내리기">&#9660;</button>`:""}</div>`;
+}
+function setExW(key,v){
+  const e=exByKey(key); if(!e) return;
+  if(!v||v===e.w) delete OV.ex[key]; else OV.ex[key]={w:v, base:e.w};
+  saveOV();
+}
+function micGo(key,dir){
+  const e=exByKey(key); if(!e) return;
+  const nx=micStep(e.mic, OV.ex[key]?OV.ex[key].w:e.w, dir); if(!nx) return;
+  if(!nx.wrap){ setExW(key,nx.w); render(); return; }
+  const el=[...document.querySelectorAll("[data-exkey]")].find(x=>x.dataset.exkey===key);
+  if(el) editEx(el,key,null,nx.w,nx.say);
 }
 const notesHTML = ns => !ns||!ns.length ? "" :
   `<div class="notes">`+ns.map(([h,ls])=>`<h5>${esc(h)}</h5><ul>${ls.map(l=>`<li>${esc(l)}</li>`).join("")}</ul>`).join("")+`</div>`;
@@ -2203,16 +2265,16 @@ function editLift(el,k,after){
     saveOV();
   }, after);
 }
-function editEx(el,key,after){
+function editEx(el,key,after,fill,hint){
   key=key||el.dataset.exkey;
   const e=exByKey(key);
   if(!e) return;
-  const cur=OV.ex[key]?OV.ex[key].w:e.w;
-  grabInput(el, cur==="—"?"":cur, false, v=>{
-    if(!v||v===e.w) delete OV.ex[key];
-    else OV.ex[key]={w:v, base:e.w};
-    saveOV();
-  }, after);
+  const cur=fill!=null?fill:OV.ex[key]?OV.ex[key].w:e.w;
+  /* 마지막 단계 다음은 새 숫자를 받는다 — 안 고치고 닫으면 아무것도 안 바꾼다 */
+  grabInput(el, cur==="—"?"":cur, false, v=>{ if(fill!=null&&v===fill) return; setExW(key,v); }, after);
+  const inp=el.querySelector("input");
+  if(inp&&hint){ inp.title=hint; inp.placeholder=hint;
+    el.insertAdjacentHTML("beforeend",`<span class="ovnote">${esc(hint)}</span>`); }
 }
 function ovHTML(){
   const items=[];
@@ -2668,6 +2730,8 @@ function tmClose(){
 function bindEdits(){
   document.querySelectorAll("[data-lift]").forEach(el=>{ el.onclick=()=>editLift(el); });
   document.querySelectorAll("[data-exkey]").forEach(el=>{ el.onclick=()=>editEx(el); });
+  document.querySelectorAll("[data-mic]").forEach(el=>{ el.onclick=()=>micGo(el.dataset.mic,1); });
+  document.querySelectorAll("[data-micdn]").forEach(el=>{ el.onclick=()=>micGo(el.dataset.micdn,-1); });
   const rb=document.getElementById("ov-reset");
   if(rb) rb.onclick=()=>{ OV={lifts:{},ex:{}}; saveOV(); render(); };
   const cp=document.getElementById("cal-prev"), cn=document.getElementById("cal-next"),

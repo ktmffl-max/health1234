@@ -78,12 +78,22 @@ LIFT_KEYS = {"스쿼트": "squat", "데드리프트": "dead",
 # 0으로 되돌리면 볼륨과 중량이 같은 주차를 쓴다.
 RAMP_WEEK_OFFSET = 1
 
+# head — 증량기록 표 머리글. 그 오른쪽 '미달 시 반복수' 열이 그 리프트의 기록이다
 LIFT_META = {                      # 시작중량_설정 행 / 증량기록 행
-    "squat": {"ko": "스쿼트",        "start_row": 7,  "inc_row": 6, "accent": "var(--sq)"},
-    "dead":  {"ko": "데드리프트",     "start_row": 8,  "inc_row": 5, "accent": "var(--dl)"},
-    "bench": {"ko": "벤치프레스",     "start_row": 9,  "inc_row": 7, "accent": "var(--bp)"},
-    "press": {"ko": "밀리터리 프레스", "start_row": 10, "inc_row": 8, "accent": "var(--mp)"},
+    "squat": {"ko": "스쿼트",        "start_row": 7,  "inc_row": 6, "accent": "var(--sq)", "head": "스쿼트 목표"},
+    "dead":  {"ko": "데드리프트",     "start_row": 8,  "inc_row": 5, "accent": "var(--dl)", "head": "데드 목표"},
+    "bench": {"ko": "벤치프레스",     "start_row": 9,  "inc_row": 7, "accent": "var(--bp)", "head": "벤치 목표"},
+    "press": {"ko": "밀리터리 프레스", "start_row": 10, "inc_row": 8, "accent": "var(--mp)", "head": "프레스 목표"},
+    # 2026-10-23 사용자 결정 — 보조 종목 둘을 매주 +1kg 선형으로. 원판식 기구라 1kg 격자가 그대로 맞는다.
+    # 메인 카드(웜업 램프 · 봉 원판 그림)는 없고 종목표의 그 줄 중량만 주차를 따라간다 — acc
+    "row":     {"ko": "해머 로우",     "start_row": 11, "inc_row": 9,  "accent": "var(--ink)",
+                "head": "해머 로우 목표", "acc": True},
+    "incline": {"ko": "인클라인 머신", "start_row": 12, "inc_row": 10, "accent": "var(--ink)",
+                "head": "인클라인 머신 목표", "acc": True},
 }
+
+# 추적 보조 종목 — 종목표의 이 이름 줄이 그 리프트다('메인:' 줄 없이)
+TRACK_KEYS = {"해머 스트랭스 로우(오버그립)": "row", "인클라인 벤치프레스 머신": "incline"}
 
 
 def pick_latest(folder):
@@ -404,7 +414,12 @@ def parse_day(ws):
             # 메인 리프트 중량은 주차에 따라 바뀌므로 상단 카드로 넘긴다.
             # 복귀 시트는 이름이 '메인:' 줄과 같고, 재택 시트는 1번 '… (본세트)' 행이다.
             lift = main_of.get(item["name"])
-            if not lift and day["main"] and item["n"] == 1 and "본세트" in item["name"]:
+            # 재택 시트에도 같은 이름이 있다(45kg · 8~10) — 추적은 복귀판에서만
+            trk = TRACK_KEYS.get(item["name"]) if ws.title.startswith("복귀") else None
+            if trk:
+                # 중량은 앱이 주차로 낸다 — 엑셀 캐시값은 C4가 늦으면 지난 주 값이다
+                item["lift"], item["trk"] = trk, True
+            elif not lift and day["main"] and item["n"] == 1 and "본세트" in item["name"]:
                 lift = day["main"]
             if lift:
                 item["w"] = "위 참조"
@@ -730,11 +745,18 @@ def parse_config(wb):
                              .split()[0], 5)),
             # 증량 주기(주). 프레스만 2 — 봉 전체 1kg이 최소 계단이라 매주 올리면 두 배 반이 된다
             "every": max(1, int(num(gr.cell(m["inc_row"], 5).value, 1))),
+            # 사다리가 출발하는 주차(F열). 비면 표 첫 줄 — 보조 둘은 13주차에 들어왔다
+            "from":  int(num(gr.cell(m["inc_row"], 6).value, 0)) or None,
+            "acc":   bool(m.get("acc")),
         }
     # 표의 줄 수와 첫 줄의 번호. 2026-09-13 주 단위 전환으로 표가 6주차에서 시작한다 —
     # '몇 번째 줄'과 '몇 주차'가 더는 같지 않으므로 base를 같이 실어 보낸다
     weeks, base = 0, 0
-    for r in range(10, 80):
+    # 머리글('주차') 다음 줄부터 센다 — 머리글 자체도 '주차'로 끝나 첫 줄로 잡힌다.
+    # 2026-10-23 설정 두 줄(보조 추적)이 들어와 표가 12행으로 내려갔다
+    hdr = next((r for r in range(1, 20)
+                if s(gr.cell(r, 1).value) in ("주차", "사이클")), 9)
+    for r in range(hdr + 1, 80):
         lab = s(gr.cell(r, 1).value)
         if lab.endswith(("사이클", "주차")):
             if not weeks:
@@ -804,7 +826,7 @@ def parse_log(wb):
     cols = {}
     for c, h in heads.items():
         for key, m in LIFT_META.items():
-            if h.startswith(m["ko"]) and heads.get(c + 1, "").startswith("미달"):
+            if h == m["head"] and heads.get(c + 1, "").startswith("미달"):
                 cols[key] = c + 1
         if h == "메모":
             cols["memo"] = c
@@ -1381,11 +1403,11 @@ function stepsTo(k,w){ let n=0; for(let c=1;c<w;c++) if(!missed(k,c)) n++; retur
    다음 칸은 올린 값에서 이어지므로, 시작중량 + 폭 × 칸수로는 재현되지 않는다 —
    엑셀 증량기록도 같은 방식이라 두 곳이 같은 숫자를 내려면 여기서도 걸어야 한다 */
 function ladder(k,w,base){
-  const L=LIFT[k], ev=L.every||1;
+  const L=LIFT[k], ev=L.every||1, f0=L.from||WBASE;   /* 보조 둘은 13주차에서 출발한다 */
   let v=base;
-  for(let c=WBASE+1;c<=w;c++){
+  for(let c=f0+1;c<=w;c++){
     if(missed(k,c-1)) continue;              /* 앞 주가 미달이면 그 중량을 한 번 더 */
-    if((c-WBASE)%ev===0) v=R(v+L.inc);       /* 주기가 2면 격주에만 오른다(프레스) */
+    if((c-f0)%ev===0) v=R(v+L.inc);          /* 주기가 2면 격주에만 오른다(프레스) */
   }
   return v;
 }
@@ -1502,12 +1524,17 @@ const esc = t => String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;");
 const escAttr = t => esc(t).replace(/"/g,"&quot;");
 /* 백오프 행의 중량 — 톱세트 − lo(kg) 또는 톱세트 × pct(1kg 반올림 · 엑셀 MROUND와 같다).
    엑셀 캐시값이 아니라 지금 주차에서 낸다 */
-const exW = e => ((e.lo||e.pct)&&e.lift&&LIFT[e.lift])
+/* 추적 보조 종목(해머 로우 · 인클라인 머신)은 그 줄 자체가 리프트다 — 사다리 값 그대로 */
+const exW = e => (e.trk&&LIFT[e.lift]) ? fmt(workWeight(e.lift,week))+"kg"
+  : ((e.lo||e.pct)&&e.lift&&LIFT[e.lift])
   ? fmt(Math.max(20, e.pct ? Math.round(workWeight(e.lift,week)*e.pct)
                            : workWeight(e.lift,week)-e.lo))+"kg" : e.w;
 function exHTML(e,prefix,sets,timed){
   const key=prefix+"|"+e.name, ov=OV.ex[key];
-  const w=ov?ov.w:exW(e), canEdit=e.w!=="위 참조"&&!e.lo&&!e.pct;
+  const w=ov&&!e.trk?ov.w:exW(e), canEdit=e.w!=="위 참조"&&!e.lo&&!e.pct&&!e.trk;
+  /* 추적 종목의 중량을 고치면 시작중량을 역산한다(메인 카드와 같은 덮어쓰기) */
+  const wAttr = e.trk ? ` data-lift="${e.lift}"` : canEdit ? ` data-exkey="${escAttr(key)}"` : "";
+  const wEd = e.trk ? !!OV.lifts[e.lift] : !!ov;
   const n=(sets==null?e.s:sets);
   /* 이번 주에 안 하는 종목 — 목록에서 빼지 않고 흐리게 남긴다.
      사라진 게 아니라 몇 주차에 돌아오는지가 보여야 한다. 메모·대체 종목은 그때 읽으면 된다.
@@ -1522,7 +1549,7 @@ function exHTML(e,prefix,sets,timed){
   return `<article class="ex"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
       <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}</div></div>
-      <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${ov?'edited':''}"${canEdit?` data-exkey="${escAttr(key)}"`:""}>${esc(w)}</span></div></div>
+      <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${wEd?'edited':''}"${wAttr}>${esc(w)}</span></div></div>
     ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${e.wk}초 · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
     ${e.memo?`<div class="ex-memo">${esc(e.memo)}</div>`:""}
@@ -1641,7 +1668,7 @@ const dlOn = () => { if(mode!=="back") return false; const b=bToday();
 const isDeadRow = e => e.lift==="dead" || (/데드리프트/.test(e.name)&&!/루마니안/.test(e.name));
 /* 복귀_증량원칙 디로드 규칙: 메인 리프트는 내림(5→2 · 4→2 · 3→1), 데드는 건너뜀, 보조는 반올림(3→2 · 4→2 · 6→3) */
 const dlSets = e => e.s<=0 ? e.s : isDeadRow(e) ? 0
-  : e.lift ? Math.max(1,Math.floor(e.s/2)) : Math.max(1,Math.round(e.s/2));
+  : e.lift&&!e.trk ? Math.max(1,Math.floor(e.s/2)) : Math.max(1,Math.round(e.s/2));
 const effSets = (e,w) => rampOn() ? setsOf(e,w) : dlOn() ? dlSets(e) : e.s;
 /* 지금 쓰는 사이클보다 큰 사이클이 처음 시작되는 날. 손으로 먼저 올려 둔 경우에도
    '다음'이 과거를 가리키지 않는다. 마지막 사이클이면 null */
@@ -2070,7 +2097,7 @@ function progressHTML(week){
   for(let w=WBASE;w<=WLAST;w++){
     const j=logVal(w,"joint"), f=logVal(w,"fat");
     rows.push(`<tr data-logrow="${w}" style="${w===week?'background:var(--raised)':''}"><td class="num">${w}</td>`+
-      keys.map(k=>`<td class="num">${fmt(workWeight(k,w))}${mark(logVal(w,k))}</td>`).join("")+
+      keys.map(k=>`<td class="num">${w<(LIFT[k].from||WBASE)?"—":fmt(workWeight(k,w))+mark(logVal(w,k))}</td>`).join("")+
       `<td class="num">${esc(f)}${j?`<i class="lm bad">${esc(j)}</i>`:""}</td></tr>`);
   }
   const mine=phoneOnly(), lines=logLines();
@@ -2228,7 +2255,7 @@ function tmSteps(d,week,from){
 }
 function tmW(e){
   if(e.w==="위 참조"&&e.lift) return fmt(workWeight(e.lift,week))+"kg";
-  if(e.lo||e.pct) return exW(e);
+  if(e.lo||e.pct||e.trk) return exW(e);
   const ov=OV.ex[mode+"|"+tab+"|"+e.name], w=String(ov?ov.w:e.w);
   return /^[\d.~\s]+$/.test(w) ? w.replace(/\s+$/,"")+"kg" : w;
 }
@@ -2508,7 +2535,7 @@ document.addEventListener("visibilitychange",()=>{
    '위 참조'(메인 리프트 본세트)는 종목이 아니라 시작중량을 고쳐야
    웜업 램프·원판까지 따라오므로 lift 쪽으로 보낸다. */
 function tmKey(e){
-  return (e.w==="위 참조"&&e.lift) ? "lift|"+e.lift : "ex|"+mode+"|"+tab+"|"+e.name;
+  return ((e.w==="위 참조"||e.trk)&&e.lift) ? "lift|"+e.lift : "ex|"+mode+"|"+tab+"|"+e.name;
 }
 function tmMeta(e){
   const key=tmKey(e), p=key.split("|");

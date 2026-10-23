@@ -117,6 +117,7 @@ TRACK_KEYS = {_n: _k for _k, _ko, _d, _n in _ACC}
 # wrist = 덤벨: 덤벨 → + 손목 1 → 다음 덤벨 (모래주머니 한쪽 1kg 고정)
 # assist = 어시스트 머신: 스택이 도와주는 무게라 거꾸로 간다 — 한 칸 가벼운 칸에 핀으로 얹었다가 덜어 낸다
 #          45 → 40 + 핀 + 2.5 → 40 + 핀 + 1 → 40 + 핀 → 40 → …
+# bar    = 봉 + 원판: +1kg (원판 격자 — 5로 나눈 나머지 4는 못 끼워 하나 더) · kg = 안고 하는 원판: +1kg
 MICRO = {
     "원암 케이블 서라투스 펀치": "pin", "시티드 케이블 로우": "pin", "원암 케이블 로우": "pin",
     "케이블 오버헤드 익스텐션 (로프)": "pin", "원암 케이블 레터럴 레이즈": "pin",
@@ -134,6 +135,7 @@ MICRO = {
     "인클라인 덤벨 로우(오버그립)": "wrist",
     "딥스": "assist",
     "친업 (어시스트 가능)": "assist",
+    "와이드 그립 업라이트 로우": "bar", "백 익스텐션 (45도)": "kg",
 }
 
 # 2026-10-24 사용자 결정 — 예열 1세트(본세트 50% × 6~8 · 세트 수에 안 셈). 그날 처음 쓰는 관절 ·
@@ -1642,6 +1644,12 @@ const MIC_RE = {
   wrist: /^(\d+(?:\.\d+)?)\s*(?:kg)?\s*(?:\+\s*손목\s*(\d+(?:\.\d+)?)\s*)?$/,
 };
 function micStep(kind,w,dir){
+  if(kind==="bar"||kind==="kg"){
+    const m=/^(\d+)\s*(?:kg)?$/.exec(String(w).trim()); if(!m) return null;
+    const n=+m[1], f=kind==="bar"?(v=>v%5===4?v+dir:v):(v=>v);
+    const v=f(n+dir);
+    return v>0?{w:String(v)}:null;
+  }
   const m=String(w).match(MIC_RE[kind]); if(!m) return null;
   const b=m[1], pinOn=/핀/.test(w), x=m[2]?Number(m[2]):0;
   if(kind==="pin"){
@@ -1665,7 +1673,7 @@ const MIC_CAP=`<span class="mic-cap">반동 · 가동범위 줄어듦 · 다른 
 function micHTML(e,key,w){
   if(!e.mic||e.trk) return "";
   const up=micStep(e.mic,w,1), dn=micStep(e.mic,w,-1);
-  if(!up) return `<div class="ex-go mic"><span class="tm-none">미세 단계 — 무게를 '${e.mic==="wrist"?"8 + 손목 1":"55 + 핀 + 1"}' 꼴로 적으면 버튼이 뜬다</span></div>`;
+  if(!up) return `<div class="ex-go mic"><span class="tm-none">미세 단계 — 무게를 '${e.mic==="wrist"?"8 + 손목 1":e.mic==="bar"||e.mic==="kg"?"20":"55 + 핀 + 1"}' 꼴로 적으면 버튼이 뜬다</span></div>`;
   const top=(String(e.r).match(/~\s*(\d+)/)||[])[1];
   return `<div class="ex-go mic"><button class="tm-go" data-mic="${escAttr(key)}">&#9650; ${top?`전 세트 ${top}회 →`:"상한 채움 →"}<b>${esc(up.wrap?"다음 칸":up.w)}</b></button>${
     dn?`<button class="tm-go mic-dn" data-micdn="${escAttr(key)}" aria-label="한 단계 내리기">&#9660;</button>`:""}${MIC_CAP}</div>`;

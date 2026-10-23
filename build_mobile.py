@@ -136,6 +136,18 @@ MICRO = {
     "친업 (어시스트 가능)": "assist",
 }
 
+# 2026-10-24 사용자 결정 — 예열 1세트(본세트 50% × 6~8 · 세트 수에 안 셈). 그날 처음 쓰는 관절 ·
+# 늘어난 자세 종목 · 탈 났던 곳만. 메인 넷은 웜업 램프가 따로 있어 뺀다. (요일, 종목) — 같은 이름이 다른 날에도 있다
+WARMUP = {
+    ("토", "머신 숄더 프레스"),                                   # 하체 뒤 첫 어깨
+    ("일", "해머 스트랭스 로우(오버그립)"), ("일", "케이블 오버헤드 익스텐션 (로프)"),
+    ("월", "원암 케이블 레터럴 레이즈"),
+    ("화", "힙 쓰러스트"), ("화", "라잉 트라이셉스 익스텐션"), ("화", "인클라인 덤벨 컬"),
+    ("수", "루마니안 데드리프트"),                                 # 햄스트링 근위부 이력
+    ("목", "친업 (어시스트 가능)"), ("목", "인클라인 벤치프레스(바벨)"),  # 오른쪽 앞 어깨 이력
+    ("목", "로프 푸쉬다운"),
+}
+
 
 def pick_latest(folder):
     """폴더에서 가장 최근에 수정된 워크북을 고른다. 엑셀 임시파일(~$)은 무시."""
@@ -457,6 +469,8 @@ def parse_day(ws):
             lift = main_of.get(item["name"])
             # 재택 시트에도 같은 이름이 있다(45kg · 8~10) — 추적은 복귀판에서만
             trk = TRACK_KEYS.get(item["name"]) if ws.title.startswith("복귀") else None
+            if ws.title.startswith("복귀") and (ws.title.split("_")[1], item["name"]) in WARMUP:
+                item["wu"] = True
             if ws.title.startswith("복귀") and item["name"] in MICRO:
                 item["mic"] = MICRO[item["name"]]
             if trk:
@@ -1213,6 +1227,9 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .ex-w[data-exkey]{border-bottom:1px dotted var(--dim);cursor:pointer;padding-bottom:1px}
 .ex-w.edited{color:var(--bp);border-bottom-color:var(--bp)}
 .ex-go.mic{display:flex;gap:6px;align-items:center}
+.mg .wu{color:var(--sq)}
+.tm-wu{display:inline-block;margin-top:8px;padding:5px 12px;border-radius:999px;font-size:13.5px;
+  font-weight:800;color:var(--bg);background:var(--sq)}
 .mic-dn{padding-left:10px;padding-right:10px}
 .bigw.edited b{color:var(--bp)}
 .ovnote{display:block;font-size:10px;font-weight:700;color:var(--bp);margin-top:5px;line-height:1.3}
@@ -1599,7 +1616,7 @@ function exHTML(e,prefix,sets,timed){
       </div></div></article>`;
   return `<article class="ex"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
-      <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}</div></div>
+      <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
       <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${wEd?'edited':''}"${wAttr}>${esc(w)}</span></div></div>
     ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${e.wk}초 · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
@@ -2695,6 +2712,10 @@ function tmPaint(){
   document.getElementById("tm-name").textContent=s.e.name;
   tmSet("tm-meta",tmMeta(s.e));
   document.getElementById("tm-set").textContent="세트 "+s.set+" / "+s.sets+(s.drop?" · 드롭세트":"");
+  /* 예열 — 이 종목 1세트 앞 준비 시간이거나 1세트 중이면 큰 띠로. 다음 종목 예고 줄에도 붙인다 */
+  const wuNow = s.e.wu&&s.set===1&&s.p!=="rest", wuNext = nx&&nx.e!==s.e&&nx.e.wu;
+  if(wuNow) document.getElementById("tm-set").insertAdjacentHTML("beforeend",
+    `<br><span class="tm-wu">예열 1세트 먼저 — 50% × 6~8</span>`);
   tmRecSet(tmRec(s.e));
   document.getElementById("tm-time").textContent=
     mmss(TM.run?Math.max(0,Math.ceil((TM.endAt-Date.now())/1000)):Math.ceil(TM.rest/1000));
@@ -2703,7 +2724,7 @@ function tmPaint(){
      읊어 주는 내용과 같다. 소리를 껐거나 못 들었을 때의 몫이기도 하다.
      여기 무게도 눌러 고칠 수 있다 — 다음 종목 준비는 쉬는 동안 하는 것이니 */
   tmSet("tm-up", (nx&&nx.e!==s.e)
-    ? "다음 ▸ <b>"+esc(nx.e.name)+"</b><i>"+tmMeta(nx.e)+" · "+nx.sets+"세트</i>"
+    ? "다음 ▸ <b>"+esc(nx.e.name)+"</b><i>"+tmMeta(nx.e)+" · "+nx.sets+"세트"+(wuNext?' · <b style="color:var(--sq)">예열 1세트</b>':"")+"</i>"
     : !nx ? "마지막 세트"
     : s.p==="prep" ? "이어서 ▸ 운동 "+mmss(nx.t)+" × "+nx.sets+"세트"
     : nx.p==="rest" ? "다음 ▸ 휴식 "+mmss(nx.t)

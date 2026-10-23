@@ -946,6 +946,10 @@ def build_voice(site, data):
         say.setdefault(w, w)
     # 드롭이 걸린 종목의 마지막 세트 시작에 '운동' 뒤에 붙는 한 마디
     say.setdefault("드롭세트", "드롭 세트")
+    # 2026-10-24 — 예열 1세트 종목 안내 꼬리 · 미세 단계 무게('5 + 핀 + 1' · '8 + 손목 1')를 읽는 토막
+    say.setdefault("예열 한 세트 먼저", "예열 한 세트 먼저")
+    for w in ("더하기 핀", "더하기 손목", "더하기"):
+        say.setdefault(w, w)
 
     say = {k: v for k, v in say.items() if v}
     # 삐 소리 뒤에 붙는 네 마디는 이미 구워져 있다. 다시 굽지 않고 그대로 넣는다 —
@@ -2480,7 +2484,15 @@ function koRange(s,unit){
 }
 /* 숫자 꼴이면 조립하고, 아니면 통째로 구워 둔 칸('맨몸')을 찾는다 */
 function koCell(s,unit){
-  return koRange(s,unit) || (tmHas(s)?[s]:[]);
+  return koMic(s) || koRange(s,unit) || (tmHas(s)?[s]:[]);
+}
+/* 미세 단계 무게 — '5 + 핀 + 1' → 오 킬로 · 더하기 핀 · 더하기 · 일, '8 + 손목 1' → 팔 킬로 · 더하기 손목 · 일 */
+function koMic(s){
+  const m=/^(\d+(?:\.\d+)?)\s*\+\s*(핀|손목)\s*(?:\+?\s*(\d+(?:\.\d+)?))?$/.exec(String(s).trim());
+  if(!m||!koNum(m[1])) return null;
+  const k=koNum(m[1]).concat(["킬로","더하기 "+m[2]]);
+  if(m[3]){ if(m[2]==="핀") k.push("더하기"); k.push.apply(k,koNum(m[3])||[]); }
+  return k;
 }
 /* 다음 종목 안내. 값은 그 순간 화면에 떠 있는 것을 그대로 읽으므로
    주차 증량도 앱에서 고친 중량도 따로 손댈 데가 없다. */
@@ -2493,6 +2505,7 @@ function tmNextKeys(e,sets){
   k.push.apply(k,koCell(String(e.r||""),"회"));
   k.push(",");
   k.push.apply(k,koCell(tmW(e).replace(/kg$/,""),"킬로"));
+  if(e.wu) k.push(",","예열 한 세트 먼저");
   return k.filter(x=>x===","||tmHas(x));
 }
 const tmLen = keys => keys.reduce(

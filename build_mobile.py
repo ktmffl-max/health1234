@@ -763,7 +763,7 @@ def parse_prep(wb):
                 "rows": [[iso(d), s(w), s(am), s(pm), s(q)] for d, w, am, pm, q in hrows],
                 "notes": parse_notes_block(h, hend + 1, "규칙")}
     rules, _ = table(c, "항목", (1, 2, 6))
-    prog, _ = table(c, "회차", (1, 2, 3, 4, 5, 6))
+    prog, _ = table(c, "회차", (1, 2, 3, 4, 5, 6, 7))
     # 진행표 바로 밑 '· …' 주석 줄은 빈 줄 없이 붙어 있어 표에 딸려 들어온다
     foot = [r[0] for r in prog if not isinstance(r[0], (int, float))]
     prog = [r for r in prog if isinstance(r[0], (int, float))]
@@ -775,8 +775,9 @@ def parse_prep(wb):
         "carry": {
             "t": s(c.cell(1, 1).value), "sub": s(c.cell(2, 1).value),
             "rules": [[s(a), s(b), s(x)] for a, b, x in rules],
-            "prog": [[int(num(w)), iso(d), num(kg), num(both), s(act), s(memo)]
-                     for w, d, kg, both, act, memo in prog],
+            # 걷기(초) G열 — 2026-10-25 덤벨이 30 다음 35라 무게 대신 시간으로 칸을 쪼갠다. 비면 40
+            "prog": [[int(num(w)), iso(d), num(kg), num(both), s(act), s(memo), int(num(sec, 40)) or 40]
+                     for w, d, kg, both, act, memo, sec in prog],
             "foot": s(foot[0]).lstrip("· ") if foot else "",
         },
         "stairs": {
@@ -2152,7 +2153,7 @@ function prepToday(){
   const swk=Math.max(1,wk-DLD.filter(x=>x>=p0&&x<=tday).length);
   /* 스텝박스는 메인 날(토 · 수)마다 한 칸 — 오늘까지 지난 마지막 칸. 짧은 날은 그 칸의 짧은 날 값. 디로드 주 칸은 엑셀이 멈춰 둔다 */
   const sr=S.ramp.filter(r=>r[1]<=tday).pop()||S.ramp[0];
-  const carry=cr?{name:"파머스 워크",mg:"캐리",w:pVal(cr[0],"w")||String(cr[2]),r:"",s:4,wk:40,rt:120,drop:0}:null;
+  const carry=cr?{name:"파머스 워크",mg:"캐리",w:pVal(cr[0],"w")||String(cr[2]),r:"",s:4,wk:cr[6]||40,rt:120,drop:0}:null;
   /* 쉬는 날에 스텝박스만 따로 돌리면 짧은 날 분량이다 */
   /* 짧은 날 손 칸(I열)이 차 있으면 이름에 붙인다 — 타이머 화면 · 오늘 줄에서 스트랩을 잊지 않게 */
   const strap=!main&&sr&&sr[8]?sr[8]+" 착용":"";
@@ -2172,7 +2173,7 @@ function prepHTML(){
       ? `<span>집 (${[home.am&&"아침",home.pm&&"저녁"].filter(Boolean).join(" · ")}) — 한쪽 ${esc(home.w)} · ${esc(home.q)}${dlNow?" · 디로드 주라 왕복 1번":""}</span>`
       : `<span>집 — 오늘은 쉼</span>`;
   const today = off ? `<b>오늘(${dow}) · 쉬는 날</b><span>${esc(day?day[2]:"")}</span>`
-    : `<b>오늘(${dow}) · ${dlNow?"디로드 주 — 캐리 · 스텝박스 무게와 분량 멈춤":swk+"주차"}</b><span>${main&&cr?`캐리 한 손 ${fmt(cr[2])}kg · 40초 × 4 (휴식 120초) → `:""}스텝박스 ${
+    : `<b>오늘(${dow}) · ${dlNow?"디로드 주 — 캐리 · 스텝박스 무게와 분량 멈춤":swk+"주차"}</b><span>${main&&cr?`캐리 한 손 ${fmt(cr[2])}kg · ${cr[6]||40}초 × 4 (휴식 120초) → `:""}스텝박스 ${
         main?`${sr[3]}분 × ${sr[4]}`:`${sr[6]}분 × ${sr[7]}`} · 덤벨 한 손 ${fmt(main?sr[2]:sr[5])}kg ${strap?`<b style="color:var(--sq)">· ${esc(strap)}</b>`:"· 맨손"} (휴식 60초)</span>`;
   /* 세션 끝 휴식은 타이머도 빼므로 마지막 종목의 휴식 하나를 덜어 센다 */
   const mins=x=>{ const L=x.ex[x.ex.length-1]; return Math.round((x.ex.reduce((a,e)=>a+e.s*(e.wk+e.rt),0)-(L?L.rt:0))/60); };
@@ -2185,12 +2186,12 @@ function prepHTML(){
   const hr0=X=>X.rows.filter(r=>r[0]<=ymd(new Date())).pop();
   /* 디로드 주(시작 토요일부터 7일) 안의 회차 — 무게가 멈춘 줄이라 번호에서 뺀다 */
   const inDL=t=>DLD.some(x=>{ const g=(ymdParse(t)-ymdParse(x))/864e5; return g>=0&&g<7; });
-  return `<h2 class="daytitle">생수배송 대비</h2><p class="daysub">목표: 한 손 36kg(2L 묶음 3팩) 컨트롤 · 세트 합계 밖</p>
+  return `<h2 class="daytitle">생수배송 대비</h2><p class="daysub">목표: 한 손 35kg(2L 묶음 3팩) 컨트롤 · 세트 합계 밖</p>
   <div class="rampbar">${today}${homeLine}</div>${go}
   <h5 style="font-size:13px;font-weight:800;margin:22px 0 4px">캐리 — 무겁게 들고 걷기</h5><p class="daysub">${esc(C.sub)}</p>
   <table class="tbl"><thead><tr><th>회차</th><th>날짜</th><th>한 손</th><th>양손</th><th>실제</th><th class="wrap">메모</th></tr></thead><tbody>
   ${C.prog.map(r=>`<tr${r===cr?' style="background:var(--surface)"':""}><td>${inDL(r[1])?"디로드":r[0]-C.prog.filter(x=>x[0]<r[0]&&inDL(x[1])).length}${r===cr?(r[1]===ymd(new Date())?" · 오늘":" · 다음"):""}</td>
-    <td class="num">${md(r[1])} ${"일월화수목금토"[ymdParse(r[1]).getDay()]}</td><td class="num" style="font-weight:800;color:var(--ink)">${fmt(r[2])}</td>
+    <td class="num">${md(r[1])} ${"일월화수목금토"[ymdParse(r[1]).getDay()]}</td><td class="num" style="font-weight:800;color:var(--ink)">${fmt(r[2])}<span style="font-weight:400;color:var(--mute)"> · ${r[6]||40}초</span></td>
     <td class="num" style="color:var(--mute)">${fmt(r[3])}</td>
     <td class="num"><input class="log-in" style="width:58px" type="text" inputmode="decimal" data-prepf="w" data-prepw="${r[0]}" value="${escAttr(pVal(r[0],"w"))}" placeholder="—"></td>
     <td class="wrap"><input class="log-in wide" style="width:100%;min-width:70px" type="text" data-prepf="m" data-prepw="${r[0]}" value="${escAttr(pVal(r[0],"m"))}" placeholder="—"></td></tr>`).join("")}

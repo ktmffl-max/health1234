@@ -1244,6 +1244,10 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .tm-wu{display:inline-block;margin-top:8px;padding:5px 12px;border-radius:999px;font-size:13.5px;
   font-weight:800;color:var(--bg);background:var(--sq)}
 .mic-dn{padding-left:10px;padding-right:10px}
+.wk-ed{margin-left:6px;cursor:pointer;border-style:solid;vertical-align:middle}
+.wk-ed.edited{color:var(--bp);border-color:var(--bp)}
+.wk-ed .w-input{width:56px;font-size:12px;padding:2px 5px}
+#tm-wk{margin-top:10px}
 .bigw.edited b{color:var(--bp)}
 .ovnote{display:block;font-size:10px;font-weight:700;color:var(--bp);margin-top:5px;line-height:1.3}
 .w-input{font:inherit;font-weight:700;background:var(--raised);color:var(--ink);
@@ -1409,6 +1413,7 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
     <p id="tm-meta"></p>
     <div class="tm-dial" id="tm-dial"><span id="tm-phase"></span><b id="tm-time">00:00</b></div>
     <p id="tm-set"></p>
+    <div id="tm-wk"></div>
     <div id="tm-rec"></div>
   </div>
   <div class="tm-ctl">
@@ -1449,6 +1454,26 @@ let ovStale=false;
 for(const k in OV.lifts){ if(!LIFT[k]||LIFT[k].start!==OV.lifts[k].base){ delete OV.lifts[k]; ovStale=true; } }
 for(const k in OV.ex){ const e=exByKey(k); if(!e||e.w!==OV.ex[k].base){ delete OV.ex[k]; ovStale=true; } }
 if(ovStale) saveOV();
+/* ── 수행 시간(초) 덮어쓰기 — 2026-10-25 사용자 요청(촉박한 종목을 엑셀 안 열고 늘리기).
+   무게와 같은 규칙이다: {폰 값, 그때의 엑셀 G열 값}. 엑셀 쪽이 바뀐 채 재배포되면 버린다.
+   불러올 때 종목 객체의 wk에 바로 얹는다 — 카드 · 타이머가 전부 그 값을 쓴다(wk0 = 엑셀 값) */
+const OVTK="wk-ovt";
+let OVT={};
+try{ const o=JSON.parse(localStorage.getItem(OVTK)||"null"); if(o&&typeof o==="object") OVT=o; }catch(e){}
+const saveOVT = () => { try{ localStorage.setItem(OVTK, JSON.stringify(OVT)); }catch(e){} };
+(function(){ let ch=false;
+  ["home","back"].forEach(m=>{ const days=D[m]||{};
+    for(const t in days){ const d=days[t]; if(!d||d.rest) continue;
+      (d.ex||[]).concat(d.groups?d.groups.reduce((a,g)=>a.concat(g[1]),[]):[]).forEach(e=>{ e.wk0=e.wk; }); } });
+  for(const k in OVT){ const e=exByKey(k);
+    if(!e||!e.wk0||e.wk0!==OVT[k].base){ delete OVT[k]; ch=true; } else e.wk=OVT[k].wk; }
+  if(ch) saveOVT(); })();
+function setWk(key,v){
+  const e=exByKey(key); if(!e||!e.wk0) return;
+  v=Math.max(5,Math.round(v));
+  if(v===e.wk0) delete OVT[key]; else OVT[key]={wk:v, base:e.wk0};
+  e.wk=v; saveOVT();
+}
 const startOf = k => OV.lifts[k] ? OV.lifts[k].start : LIFT[k].start;
 
 /* ── 증량 기록 — 이 폰에 남는 실측 ────────────────────────────────
@@ -1631,7 +1656,7 @@ function exHTML(e,prefix,sets,timed){
       <div class="ex-n num">${e.n}</div>
       <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
       <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${wEd?'edited':''}"${wAttr}>${esc(w)}</span></div></div>
-    ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${e.wk}초 · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button></div>`
+    ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${e.wk}초 · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button><span class="tm-none wk-ed${OVT[key]?" edited":""}" data-wkkey="${escAttr(key)}">수행 ${e.wk}초 &#9998;</span></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
     ${micHTML(e,key,w)}
     ${e.trk&&LIFT[e.lift]&&!dlOn()?liftLogHTML(e.lift,week):""}
@@ -2347,6 +2372,10 @@ function ovHTML(){
     const p=k.split("|");
     items.push(`${p[0]==="back"?"복귀 ":""}${p[1]} · ${p[2]} — ${OV.ex[k].base} → ${OV.ex[k].w}`);
   }
+  for(const k in OVT){
+    const p=k.split("|");
+    items.push(`${p[0]==="back"?"복귀 ":""}${p[1]} · ${p[2]} — 수행 ${OVT[k].base}초 → ${OVT[k].wk}초 (G열)`);
+  }
   if(!items.length) return "";
   return `<div class="ovbox"><h5>이 폰에서 수정한 값 <span>· 엑셀 원본은 그대로이니 나중에 옮겨 적으세요</span></h5>
     <ul>${items.map(t=>`<li>${esc(t)}</li>`).join("")}</ul>
@@ -2747,6 +2776,9 @@ function tmPaint(){
   if(wuNow) document.getElementById("tm-set").insertAdjacentHTML("beforeend",
     `<br><span class="tm-wu">예열 1세트 먼저 — 50% × 6~8</span>`);
   tmRecSet(tmRec(s.e));
+  /* 수행 시간 — 운동 중이면 지금 세트, 준비 · 휴식 중이면 곧 시작할 세트의 종목 */
+  const wt = s.p==="work" ? s.e : (nx&&nx.p==="work" ? nx.e : null);
+  tmSet("tm-wk", wt&&wt.wk0 ? tmWkHTML(wt) : "");
   document.getElementById("tm-time").textContent=
     mmss(TM.run?Math.max(0,Math.ceil((TM.endAt-Date.now())/1000)):Math.ceil(TM.rest/1000));
   document.getElementById("tm-play").textContent=TM.run?"일시정지":"계속";
@@ -2759,6 +2791,27 @@ function tmPaint(){
     : s.p==="prep" ? "이어서 ▸ 운동 "+mmss(nx.t)+" × "+nx.sets+"세트"
     : nx.p==="rest" ? "다음 ▸ 휴식 "+mmss(nx.t)
     : "다음 ▸ "+nx.set+"세트째"+(nx.drop?" · 드롭세트 — 내릴 무게 준비":""));
+}
+/* ±15초는 이번 세션에서 이 종목의 남은 세트(지금 세트 포함)에만 건다. 계속 쓰려면 '저장' —
+   그때 폰 덮어쓰기(OVT)에 들어가고, 다음 세션부터 그 시간으로 시작한다 */
+function tmWkHTML(e){
+  const key=mode+"|"+tab+"|"+e.name, sv=TM.wk[e.name]!=null?TM.wk[e.name]:e.wk;
+  const save = sv!==e.wk ? `<button class="tm-go" data-twksave="${escAttr(e.name)}">이 종목 ${sv}초로 저장</button>` : "";
+  return `<div class="ex-go mic" style="justify-content:center"><button class="tm-go mic-dn" data-twk="-15">&minus;15초</button><span class="tm-rec-h">수행 ${sv}초${
+    OVT[key]&&sv===e.wk?" · 폰 값":""}</span><button class="tm-go mic-dn" data-twk="15">+15초</button>${save}</div>`;
+}
+function tmWkAdj(d){
+  if(!TM) return;
+  const s=TM.st[TM.i], nx=TM.st[TM.i+1];
+  const e = s.p==="work" ? s.e : (nx&&nx.p==="work" ? nx.e : null); if(!e) return;
+  const cur=TM.wk[e.name]!=null?TM.wk[e.name]:e.wk, v=Math.max(5,cur+d), dd=v-cur; if(!dd) return;
+  TM.wk[e.name]=v;
+  for(let i=TM.i;i<TM.st.length;i++){ const x=TM.st[i]; if(x.p==="work"&&x.e===e) x.t=Math.max(1,x.t+dd); }
+  if(s.p==="work"&&s.e===e){
+    if(TM.run) TM.endAt=Math.max(Date.now()+1000, TM.endAt+dd*1000);
+    else TM.rest=Math.max(1000, TM.rest+dd*1000);
+  }
+  tmLeft=-1; tmPaint(); if(TM.run) tmSchedule();
 }
 function tmLoop(){
   if(!TM||!TM.run) return;
@@ -2783,7 +2836,7 @@ function tmStart(d,from){
   const st=tmSteps(d,week,from);
   if(!st.length) return;
   tmAudio();
-  TM={st:st,i:0,endAt:Date.now()+st[0].t*1000,rest:0,run:true,title:d.t};
+  TM={st:st,i:0,endAt:Date.now()+st[0].t*1000,rest:0,run:true,title:d.t,wk:{}};
   document.getElementById("tm").hidden=false;
   document.body.style.overflow="hidden";
   tmLock(); tmPaint(); tmMedia(); tmEnter(); tmLeft=-1;
@@ -2825,7 +2878,13 @@ function bindEdits(){
   document.querySelectorAll("[data-mic]").forEach(el=>{ el.onclick=()=>micGo(el.dataset.mic,1); });
   document.querySelectorAll("[data-micdn]").forEach(el=>{ el.onclick=()=>micGo(el.dataset.micdn,-1); });
   const rb=document.getElementById("ov-reset");
-  if(rb) rb.onclick=()=>{ OV={lifts:{},ex:{}}; saveOV(); render(); };
+  if(rb) rb.onclick=()=>{ OV={lifts:{},ex:{}}; saveOV();
+    for(const k in OVT){ const e=exByKey(k); if(e) e.wk=e.wk0; } OVT={}; saveOVT(); render(); };
+  /* 카드의 '수행 N초' — 숫자로 고친다. 비우면 엑셀 값으로 */
+  document.querySelectorAll("[data-wkkey]").forEach(el=>{ el.onclick=()=>{
+    const k=el.dataset.wkkey, e=exByKey(k); if(!e) return;
+    grabInput(el, String(e.wk), true, v=>{ const n=parseInt(v,10);
+      if(v==="") setWk(k,e.wk0); else if(n>0) setWk(k,n); }); }; });
   const cp=document.getElementById("cal-prev"), cn=document.getElementById("cal-next"),
         ct=document.getElementById("cal-today");
   const shift=n=>{ const now=new Date(), b=calYM||{y:now.getFullYear(),m:now.getMonth()};
@@ -2950,6 +3009,11 @@ tmMuteBtn.onclick=()=>{
 document.getElementById("tm").addEventListener("click",ev=>{
   const el=ev.target.closest("[data-tmw]");
   if(el) return tmEditW(el);
+  const wb=ev.target.closest("[data-twk]");
+  if(wb) return tmWkAdj(+wb.dataset.twk);
+  const wsv=ev.target.closest("[data-twksave]");
+  if(wsv&&TM){ const n=wsv.dataset.twksave;
+    setWk(mode+"|"+tab+"|"+n, TM.wk[n]); delete TM.wk[n]; render(); return tmPaint(); }
   const mb=ev.target.closest("[data-tmic],[data-tmicdn]");
   if(mb){ const up=mb.dataset.tmic!=null;
     return micGo(up?mb.dataset.tmic:mb.dataset.tmicdn, up?1:-1, document.querySelector("#tm-meta [data-tmw]")); }

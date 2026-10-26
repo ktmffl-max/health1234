@@ -104,12 +104,17 @@ _ACC = [  # 키, 앱 이름, 요일, 종목표 이름 — 시작중량_설정 11
     ("rcurl", "리버스컬",           "화", "리버스컬"),
     ("incb",  "인클라인 바벨",       "목", "인클라인 벤치프레스(바벨)"),
 ]
+#  추적을 멈춘 종목 — 행 번호가 순서로 정해지니 목록에선 빼지 않고 여기서 건너뛴다
+#  prot: 2026-10-26 월 스미스 프로트랙션 → 체스트 프레스 머신 프로트랙션(토요일과 같은 범위 + 핀 방식)
+_RETIRED = {"prot"}
 for _i, (_k, _ko, _d, _n) in enumerate(_ACC):
+    if _k in _RETIRED:
+        continue
     LIFT_META[_k] = {"ko": _ko, "start_row": 11 + _i, "inc_row": 9 + _i, "accent": "var(--ink)",
                      "head": _ko + " 목표", "acc": True, "day": _d}
 
 # 추적 보조 종목 — 종목표의 이 이름 줄이 그 리프트다('메인:' 줄 없이)
-TRACK_KEYS = {_n: _k for _k, _ko, _d, _n in _ACC}
+TRACK_KEYS = {_n: _k for _k, _ko, _d, _n in _ACC if _k not in _RETIRED}
 
 # 2026-10-24 사용자 결정 — 케이블 · 레터럴은 반복 범위 그대로 두고 칸만 쪽낸다(선형 아님).
 # 전 세트 상한이면 앱 버튼으로 한 단계 — 무게 칸 글자 자체가 단계다('55 + 핀 + 1').

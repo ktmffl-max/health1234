@@ -1715,9 +1715,9 @@ function micHTML(e,key,w){
   return `<div class="ex-go mic"><button class="tm-go" data-mic="${escAttr(key)}">&#9650; ${top?`전 세트 ${top}회 →`:"상한 채움 →"}<b>${esc(up.wrap?"다음 칸":up.w)}</b></button>${
     dn?`<button class="tm-go mic-dn" data-micdn="${escAttr(key)}" aria-label="한 단계 내리기">&#9660;</button>`:""}${MIC_CAP}</div>`;
 }
-/* 2026-10-27 사용자 요청 — 월 원암 케이블 레터럴 무게를 수요일이 따라간다(엑셀 수 D36 = 월 D22).
-   한 방향이다: 월을 고치면 수도 같은 값으로 · 수만 고치면 그 날만 바뀐다(다음에 월을 고치면 다시 맞춰진다) */
-const EX_LINK = {"back|월|원암 케이블 레터럴 레이즈": ["back|수|원암 케이블 레터럴 레이즈"]};
+/* 2026-10-27 사용자 요청 — 월 원암 케이블 레터럴 무게가 수요일을 따라간다(엑셀 월 D22 = 수 D36).
+   한 방향이다: 수를 고치면 월도 같은 값으로 · 월만 고치면 그 날만 바뀐다(다음에 수를 고치면 다시 맞춰진다) */
+const EX_LINK = {"back|수|원암 케이블 레터럴 레이즈": ["back|월|원암 케이블 레터럴 레이즈"]};
 function setExW(key,v){
   const e=exByKey(key); if(!e) return;
   [key].concat(EX_LINK[key]||[]).forEach(k=>{ const x=exByKey(k); if(!x) return;

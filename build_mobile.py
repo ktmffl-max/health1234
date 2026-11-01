@@ -184,15 +184,22 @@ MICRO = {
 
 # 2026-10-24 사용자 결정 — 예열 1세트(본세트 50% × 6~8 · 세트 수에 안 셈). 그날 처음 쓰는 관절 ·
 # 늘어난 자세 종목 · 탈 났던 곳만. 메인 넷은 웜업 램프가 따로 있어 뺀다. (요일, 종목) — 같은 이름이 다른 날에도 있다
-# 2026-11-01 v22 9일 사이클로 옮김 — (일차, 종목). 인클라인 바벨은 8일차 웜업 램프가 따로 있어 뺐다
+# 2026-11-01 v22 9일 사이클로 옮김 — {(일차, 종목): 예열 방법}. 인클라인 바벨은 8일차 웜업 램프가 따로 있어 뺐다.
+# 같은 날 2026-11-01 사용자 결정 — '갑자기 다른 부위로 넘어가는 자리'도 예열. 방법이 None이면 기본(50% × 6~8)이다.
+# 방법 글자는 종목 카드 · 타이머 띠 · '다음 ▸' 줄에 그대로 뜬다(음성은 '예열 한 세트 먼저'만)
+WU_DEFAULT = "50% × 6~8"
 WARMUP = {
-    ("1", "레그 컬"),                                             # 패드로 늘어난 자세 · 첫 무릎 굽힘
-    ("2", "케이블 오버헤드 익스텐션 (로프)"),                       # 장두 늘어난 자세
-    ("3", "해머 스트랭스 로우(오버그립)"),
-    ("4", "힙 쓰러스트"), ("4", "라잉 트라이셉스 익스텐션"),
-    ("5", "인클라인 덤벨 컬"),                                     # 어깨 뒤 늘어난 자세 · 오른쪽 앞 어깨
-    ("7", "루마니안 데드리프트"),                                  # 햄스트링 근위부 이력
-    ("8", "업라이트 로우 (EZ바 · 넓은 그립)"), ("8", "인클라인 덤벨 컬"),  # 오른쪽 앞 어깨 이력
+    ("1", "레그 컬"): None,                                       # 패드로 늘어난 자세 · 첫 무릎 굽힘
+    ("1", "넥 익스텐션 (플레이트)"): "무게 없이 머리만 앞뒤로 × 15씩 — 그날 첫 목 · 가동범위부터",
+    ("2", "딥스"): "어시스트 많이 걸고 × 8 · 맨 아래 깊이를 천천히 — 어깨 늘어나는 구간 확인",
+    ("3", "해머 스트랭스 로우(오버그립)"): None,
+    ("4", "힙 쓰러스트"): None, ("4", "라잉 트라이셉스 익스텐션"): None,
+    ("4", "페이스풀 (로프)"): "아주 가볍게 × 15 — 하체 뒤 그날 첫 어깨",
+    ("5", "와이드 오버그립 랫풀다운"): "스캡 풀다운(팔 편 채 날개뼈만 내리기) × 10 → 50% × 8 — 그날 첫 당기기 · 맨 위에서 오른쪽 앞 어깨 확인",
+    ("5", "인클라인 덤벨 컬"): None,                              # 어깨 뒤 늘어난 자세 · 오른쪽 앞 어깨
+    ("7", "루마니안 데드리프트"): None,                           # 햄스트링 근위부 이력
+    ("7", "케이블 오버헤드 익스텐션 (로프)"): "로프 오버헤드 40% × 12~15 — 하체 70분 뒤 차가운 팔꿈치 · 푸쉬다운은 따로 안 함",
+    ("8", "업라이트 로우 (EZ바 · 넓은 그립)"): None, ("8", "인클라인 덤벨 컬"): None,  # 오른쪽 앞 어깨 이력
 }
 
 
@@ -527,8 +534,10 @@ def parse_day(ws, wsf=None):
                 trk = ACC_BY_ROW.get(int(m.group(1))) if m else None
             else:
                 trk = TRACK_KEYS.get(item["name"]) if ws.title.startswith("복귀") else None
-            if is_back(ws) and (ws.title.split("_")[1], item["name"]) in WARMUP:
+            wk_ = (ws.title.split("_")[1], item["name"])
+            if is_back(ws) and wk_ in WARMUP:
                 item["wu"] = True
+                item["wut"] = WARMUP[wk_] or WU_DEFAULT
             if is_back(ws) and item["name"] in MICRO:
                 item["mic"] = MICRO[item["name"]]
             if trk:
@@ -1466,8 +1475,8 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .grip{margin-top:4px;font-size:13px;font-weight:700;color:var(--bp)}
 .grip i{font-style:normal;font-weight:600;color:var(--mute)}
 .tm-grip{display:block;margin-top:6px;font-size:18px;font-weight:800;color:var(--bp)}
-.tm-wu{display:inline-block;margin-top:8px;padding:5px 12px;border-radius:999px;font-size:13.5px;
-  font-weight:800;color:var(--bg);background:var(--sq)}
+.tm-wu{display:inline-block;margin-top:8px;padding:6px 12px;border-radius:14px;font-size:13.5px;line-height:1.4;
+  max-width:100%;text-align:center;font-weight:800;color:var(--bg);background:var(--sq)}
 .mic-dn{padding-left:10px;padding-right:10px}
 .wk-ed{margin-left:6px;cursor:pointer;border-style:solid;vertical-align:middle}
 .wk-ed.edited{color:var(--bp);border-color:var(--bp)}
@@ -1880,7 +1889,7 @@ function exHTML(e,prefix,sets,timed){
   const gp = mode==="back" ? gripOf(e) : null;
   return `<article class="ex"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
-      <div class="ex-t"><h4>${esc(gp&&e.gname?e.gname:e.name)}</h4>${gp?`<div class="grip">그립 · ${esc(gp.t)} <i>(회전 ${gp.n})</i></div>`:""}<div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
+      <div class="ex-t"><h4>${esc(gp&&e.gname?e.gname:e.name)}</h4>${gp?`<div class="grip">그립 · ${esc(gp.t)} <i>(회전 ${gp.n})</i></div>`:""}${e.wu?`<div class="grip" style="color:var(--sq)">예열 · ${esc(e.wut||"50% × 6~8")}</div>`:""}<div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
       <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${wEd?'edited':''}"${wAttr}>${esc(w)}</span></div></div>
     ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${e.wk}초 · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button><span class="tm-none wk-ed${OVT[key]?" edited":""}" data-wkkey="${escAttr(key)}">수행 ${e.wk}초 &#9998;</span></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
@@ -3025,7 +3034,7 @@ function tmPaint(){
   /* 예열 — 이 종목 1세트 앞 준비 시간이거나 1세트 중이면 큰 띠로. 다음 종목 예고 줄에도 붙인다 */
   const wuNow = s.e.wu&&s.set===1&&s.p!=="rest", wuNext = nx&&nx.e!==s.e&&nx.e.wu;
   if(wuNow) document.getElementById("tm-set").insertAdjacentHTML("beforeend",
-    `<br><span class="tm-wu">예열 1세트 먼저 — 50% × 6~8</span>`);
+    `<br><span class="tm-wu">예열 1세트 먼저 — ${esc(s.e.wut||"50% × 6~8")}</span>`);
   tmRecSet(tmRec(s.e));
   /* 수행 시간 — 운동 중이면 지금 세트, 준비 · 휴식 중이면 곧 시작할 세트의 종목 */
   const wt = s.p==="work" ? s.e : (nx&&nx.p==="work" ? nx.e : null);
@@ -3037,7 +3046,7 @@ function tmPaint(){
      읊어 주는 내용과 같다. 소리를 껐거나 못 들었을 때의 몫이기도 하다.
      여기 무게도 눌러 고칠 수 있다 — 다음 종목 준비는 쉬는 동안 하는 것이니 */
   tmSet("tm-up", (nx&&nx.e!==s.e)
-    ? "다음 ▸ <b>"+esc(mode==="back"?exName(nx.e):nx.e.name)+"</b>"+((g=>g?' <b style="color:var(--bp)">· 그립 '+esc(g.t)+"</b>":"")(mode==="back"?gripOf(nx.e):null))+"<i>"+tmMeta(nx.e)+" · "+nx.sets+"세트"+(wuNext?' · <b style="color:var(--sq)">예열 1세트</b>':"")+"</i>"
+    ? "다음 ▸ <b>"+esc(mode==="back"?exName(nx.e):nx.e.name)+"</b>"+((g=>g?' <b style="color:var(--bp)">· 그립 '+esc(g.t)+"</b>":"")(mode==="back"?gripOf(nx.e):null))+"<i>"+tmMeta(nx.e)+" · "+nx.sets+"세트"+(wuNext?'<br><b style="color:var(--sq)">예열 1세트 — '+esc(nx.e.wut||"50% × 6~8")+'</b>':"")+"</i>"
     : !nx ? "마지막 세트"
     : s.p==="prep" ? "이어서 ▸ 운동 "+mmss(nx.t)+" × "+nx.sets+"세트"
     : nx.p==="rest" ? "다음 ▸ 휴식 "+mmss(nx.t)

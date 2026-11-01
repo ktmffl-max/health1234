@@ -883,7 +883,9 @@ def grip_display_name(name):
 
 
 def parse_grip_rotation(wb):
-    """사이클_그립회전 — {start, rows:[[일차, 종목, 주기, [그립…], 메모]]}. 시트가 없으면 None."""
+    """사이클_그립회전 — {start, rows:[[일차, 종목, 주기, [그립…], 메모, 원암축]]}. 시트가 없으면 None.
+    원암축(H열, 2026-11-01): '양손 먼저' → 0 · '원암 먼저' → 1 · 빈칸 → None. 그립(3사이클)과 따로
+    2사이클마다 원암 ↔ 양손. 그 차례 그립이 오버(넓게)면 늘 양손 — 원암으로 넓게 잡는 자세는 없다."""
     if GRIP_SHEET not in wb.sheetnames:
         return None
     ws = wb[GRIP_SHEET]
@@ -903,7 +905,11 @@ def parse_grip_rotation(wb):
         grips = [s(ws.cell(r, 4 + i).value) for i in range(per)]
         if not all(grips):
             sys.exit(f"[중단] {GRIP_SHEET} {r}행 '{s(ws.cell(r, 2).value)}' — 주기 {per}인데 회전 칸이 비었습니다.")
-        rows.append([str(int(d)), s(ws.cell(r, 2).value), per, grips, s(ws.cell(r, 7).value)])
+        h = s(ws.cell(r, 8).value)
+        if h and h not in ("양손 먼저", "원암 먼저"):
+            sys.exit(f"[중단] {GRIP_SHEET} H{r} '{h}' — '양손 먼저' · '원암 먼저' · 빈칸 중 하나여야 합니다.")
+        arm = {"양손 먼저": 0, "원암 먼저": 1}.get(h)
+        rows.append([str(int(d)), s(ws.cell(r, 2).value), per, grips, s(ws.cell(r, 7).value), arm])
     return {"start": start, "rows": rows}
 
 
@@ -1136,6 +1142,9 @@ def build_voice(site, data):
     for row in ((data.get("gripRot") or {}).get("rows") or []):
         for g in row[3]:
             say.setdefault("그립:" + g, say_grip(g))
+        if row[5] is not None:
+            say.setdefault("팔:원암", "원암, 좌우")
+            say.setdefault("팔:양손", "양손")
     for src in ("home", "back"):
         for day in data.get(src, {}).values():
             for e in all_ex(day):
@@ -1239,12 +1248,16 @@ def build(xlsx_path, out_path):
     gr = parse_grip_rotation(wb)
     data["gripRot"] = gr
     if gr:
-        for d, name, per, grips, memo in gr["rows"]:
+        for d, name, per, grips, memo, arm in gr["rows"]:
             hit = [e for e in all_ex(data["back"].get(d, {})) if e.get("name") == name]
             if not hit:
                 sys.exit(f"[중단] {GRIP_SHEET} '{d}일차 {name}' — 그 일차 시트에 같은 이름의 종목이 없습니다(글자까지 같아야 함).")
             for e in hit:
                 e["grip"] = {"p": per, "g": grips}
+                if arm is not None:
+                    e["grip"]["a"] = arm
+                if "원암" in name:          # 시트 수행 초가 원암(좌우) 기준인 종목
+                    e["grip"]["b"] = 1
                 e["gname"] = grip_display_name(name)
     # 보조 추적 종목이 어느 일차에 있는지 — 증량 탭이 일차별로 묶는다. 없는 종목은 '' (추적 안 함)
     for k, L in data["config"]["lifts"].items():
@@ -1891,7 +1904,7 @@ function exHTML(e,prefix,sets,timed){
       <div class="ex-n num">${e.n}</div>
       <div class="ex-t"><h4>${esc(gp&&e.gname?e.gname:e.name)}</h4>${gp?`<div class="grip">그립 · ${esc(gp.t)} <i>(회전 ${gp.n})</i></div>`:""}${e.wu?`<div class="grip" style="color:var(--sq)">예열 · ${esc(e.wut||"50% × 6~8")}</div>`:""}<div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
       <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${wEd?'edited':''}"${wAttr}>${esc(w)}</span></div></div>
-    ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${e.wk}초 · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button><span class="tm-none wk-ed${OVT[key]?" edited":""}" data-wkkey="${escAttr(key)}">수행 ${e.wk}초 &#9998;</span></div>`
+    ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${armWk(e,e.wk)}초${armWk(e,e.wk)!==e.wk?` (${gp&&gp.arm}${gp&&gp.arm==="원암"?" · 좌우":""})`:""} · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button><span class="tm-none wk-ed${OVT[key]?" edited":""}" data-wkkey="${escAttr(key)}">수행 ${e.wk}초 &#9998;</span></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
     ${micHTML(e,key,w)}
     ${e.trk&&LIFT[e.lift]&&!dlOn()?liftLogHTML(e.lift,week):""}
@@ -2162,7 +2175,21 @@ function gripOf(e){
   if(!GR||!e||!e.grip) return null;
   const c=cycDayOf(ymd(new Date())); if(!c) return null;
   const k=c.round-GR.start; if(k<0) return null;
-  return {n:(k%3)+1, t:e.grip.g[k%e.grip.p]};
+  const g=e.grip.g[k%e.grip.p];
+  /* 원암 ↔ 양손(H열) — 2사이클 교대. 오버 그립 차례는 늘 양손. H열이 없으면 그립 칸 글자의 (원암)/(양손) */
+  let arm=null;
+  if(e.grip.a!=null) arm = /^오버/.test(g) ? "양손" : ((k+e.grip.a)%2 ? "원암" : "양손");
+  else arm = /원암/.test(g) ? "원암" : /양손/.test(g) ? "양손" : null;
+  return {n:(k%3)+1, g:g, arm:arm, ax:e.grip.a!=null, t:(e.grip.a!=null ? g+" · "+arm : g)};
+}
+/* 원암 차례면 수행 시간 2배(좌우). 원래 원암 종목(시트 초가 좌우 기준)이 양손 차례면 절반 · 최소 40초 */
+function armWk(e,wk){
+  const gp = mode==="back" ? gripOf(e) : null;
+  if(!gp||!gp.arm||!wk) return wk;
+  const b1=!!e.grip.b;
+  if(gp.arm==="원암"&&!b1) return wk*2;
+  if(gp.arm==="양손"&&b1) return Math.max(40,Math.round(wk/2));
+  return wk;
 }
 const exName = e => gripOf(e)&&e.gname ? e.gname : e.name;
 /* 중량 칸 w를 쓰는 사이클 번호(디로드 사이클은 건너뜀). 기준일 앞 칸이거나 표 밖이면 null */
@@ -2391,7 +2418,8 @@ function gripTableHTML(){
   const cur = r => k>=0 && (k%3)===r;
   return `<h3 class="sub-h">등 그립 회전</h3><p class="daysub">${now}. 종목 · 세트는 그대로, 그립만 사이클마다 돈다. 종목 카드 · 세션 타이머 · 다음 종목 음성에 자동으로 뜬다.</p>
   <table class="tbl"><thead><tr><th>일차</th><th style="text-align:left">종목</th>${[0,1,2].map(i=>`<th style="${cur(i)?"color:var(--bp)":""}">회전 ${i+1}</th>`).join("")}</tr></thead><tbody>
-  ${GR.rows.map(([d,n,per,g,memo])=>`<tr><td>${esc(d)}</td><td class="wrap">${esc(n)}${memo?`<br><span style="color:var(--mute);font-size:12px">${esc(memo)}</span>`:""}</td>${per===3 ? [0,1,2].map(i=>
+  ${GR.rows.map(([d,n,per,g,memo,arm])=>`<tr><td>${esc(d)}</td><td class="wrap">${esc(n)}${arm!=null?`<br><b style="font-size:12px">원암 ↔ 양손 2사이클 교대 (${arm?"원암":"양손"} 먼저 · 오버 그립 차례는 양손)${
+      k>=0?` · <span style="color:var(--bp)">이번: ${/^오버/.test(g[k%per])?"양손":((k+arm)%2?"원암":"양손")}</span>`:""}</b>`:""}${memo?`<br><span style="color:var(--mute);font-size:12px">${esc(memo)}</span>`:""}</td>${per===3 ? [0,1,2].map(i=>
       `<td class="wrap" style="${cur(i)?"font-weight:800;color:var(--bp)":""}">${esc(g[i])}</td>`).join("")
     : `<td colspan="3" class="wrap">${per===1?esc(g[0])+" (고정)":`사이클마다 번갈아 — ${g.map(esc).join(" ↔ ")}`}${
         k>=0?` · <b style="color:var(--bp)">이번: ${esc(g[k%per])}</b>`:""}</td>`}</tr>`).join("")}
@@ -2672,7 +2700,7 @@ function tmSteps(d,week,from){
       /* 드롭이 걸린 종목(엑셀 O열)은 마지막 세트만 그 시간만큼 길게 잡고 표시를
          남긴다 — 세트 시작 때 '드롭세트'라고 읊고 화면에도 적는다 */
       const dp=(k===S(e)&&e.drop>0);
-      st.push({p:"work",t:e.wk+(dp?e.drop:0),e:e,set:k,sets:S(e),drop:dp});
+      st.push({p:"work",t:armWk(e,e.wk)+(dp?e.drop:0),e:e,set:k,sets:S(e),drop:dp});
       const rt=restAt(e,k);
       if(rt>0) st.push({p:"rest",t:rt,e:e,set:k,sets:S(e)});
     });});
@@ -2801,7 +2829,7 @@ function koMic(s){
 function tmNextKeys(e,sets){
   const gp = mode==="back" ? gripOf(e) : null;
   const k=["다음 종목",",",gp?exName(e):e.name];
-  if(gp) k.push(",","그립:"+gp.t);
+  if(gp){ k.push(",","그립:"+gp.g); if(gp.ax) k.push("팔:"+gp.arm); }
   if(e.mg) k.push(",",e.mg);
   k.push(",");
   k.push.apply(k,(koNum(String(sets))||[]).concat(["세트"]));

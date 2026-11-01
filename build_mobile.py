@@ -885,7 +885,7 @@ def grip_display_name(name):
 def parse_grip_rotation(wb):
     """사이클_그립회전 — {start, rows:[[일차, 종목, 주기, [그립…], 메모, 원암축]]}. 시트가 없으면 None.
     원암축(H열, 2026-11-01): '양손 먼저' → 0 · '원암 먼저' → 1 · 빈칸 → None. 그립(3사이클)과 따로
-    2사이클마다 원암 ↔ 양손. 그 차례 그립이 오버(넓게)면 늘 양손 — 원암으로 넓게 잡는 자세는 없다."""
+    2사이클마다 원암 ↔ 양손. 원암은 언더 차례에만 — 오버 · 뉴트럴(넓은 패럴렐 · 팔꿈치 45°)은 늘 양손(2026-11-01 S1)."""
     if GRIP_SHEET not in wb.sheetnames:
         return None
     ws = wb[GRIP_SHEET]
@@ -2185,7 +2185,8 @@ function gripOf(e){
   const g=e.grip.g[k%e.grip.p];
   /* 원암 ↔ 양손(H열) — 2사이클 교대. 오버 그립 차례는 늘 양손. H열이 없으면 그립 칸 글자의 (원암)/(양손) */
   let arm=null;
-  if(e.grip.a!=null) arm = /^오버/.test(g) ? "양손" : ((k+e.grip.a)%2 ? "원암" : "양손");
+  /* 원암은 언더 차례에만(2026-11-01 S1) — 오버 · 뉴트럴(넓은 패럴렐 · 팔꿈치 45° = 중부)은 늘 양손 */
+  if(e.grip.a!=null) arm = /^(오버|뉴트럴|패럴렐)/.test(g) ? "양손" : ((k+e.grip.a)%2 ? "원암" : "양손");
   else arm = /원암/.test(g) ? "원암" : /양손/.test(g) ? "양손" : null;
   const cue=(e.grip.c&&e.grip.c[k%e.grip.p])||"";
   return {n:(k%3)+1, g:g, arm:arm, ax:e.grip.a!=null, t:(e.grip.a!=null ? g+" · "+arm : g), cue:cue};
@@ -2428,8 +2429,8 @@ function gripTableHTML(){
   const cur = r => k>=0 && (k%3)===r;
   return `<h3 class="sub-h">등 그립 회전</h3><p class="daysub">${now}. 종목 · 세트는 그대로, 그립만 사이클마다 돈다. 종목 카드 · 세션 타이머 · 다음 종목 음성에 자동으로 뜬다.</p>
   <table class="tbl"><thead><tr><th>일차</th><th style="text-align:left">종목</th>${[0,1,2].map(i=>`<th style="${cur(i)?"color:var(--bp)":""}">회전 ${i+1}</th>`).join("")}</tr></thead><tbody>
-  ${GR.rows.map(([d,n,per,g,memo,arm,cues])=>`<tr><td>${esc(d)}</td><td class="wrap">${esc(n)}${arm!=null?`<br><b style="font-size:12px">원암 ↔ 양손 2사이클 교대 (${arm?"원암":"양손"} 먼저 · 오버 그립 차례는 양손)${
-      k>=0?` · <span style="color:var(--bp)">이번: ${/^오버/.test(g[k%per])?"양손":((k+arm)%2?"원암":"양손")}</span>`:""}</b>`:""}${memo?`<br><span style="color:var(--mute);font-size:12px">${esc(memo)}</span>`:""}</td>${per===3 ? [0,1,2].map(i=>
+  ${GR.rows.map(([d,n,per,g,memo,arm,cues])=>`<tr><td>${esc(d)}</td><td class="wrap">${esc(n)}${arm!=null?`<br><b style="font-size:12px">원암 ↔ 양손 2사이클 교대 (${arm?"원암":"양손"} 먼저 · 원암은 언더 차례만)${
+      k>=0?` · <span style="color:var(--bp)">이번: ${/^(오버|뉴트럴|패럴렐)/.test(g[k%per])?"양손":((k+arm)%2?"원암":"양손")}</span>`:""}</b>`:""}${memo?`<br><span style="color:var(--mute);font-size:12px">${esc(memo)}</span>`:""}</td>${per===3 ? [0,1,2].map(i=>
       `<td class="wrap" style="${cur(i)?"font-weight:800;color:var(--bp)":""}">${esc(g[i])}${cues&&cues[i]?`<br><span style="color:var(--sq);font-size:12px">▸ ${esc(cues[i])}</span>`:""}</td>`).join("")
     : `<td colspan="3" class="wrap">${per===1?esc(g[0])+" (고정)":`사이클마다 번갈아 — ${g.map(esc).join(" ↔ ")}`}${
         k>=0?` · <b style="color:var(--bp)">이번: ${esc(g[k%per])}</b>`:""}</td>`}</tr>`).join("")}

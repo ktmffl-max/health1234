@@ -863,6 +863,48 @@ def parse_cycle_anchor(wb):
             "dlFirst": got.get("dlFirst") or 0, "dlEvery": got.get("dlEvery") or 0}
 
 
+GRIP_SHEET = "사이클_그립회전"
+
+
+def grip_display_name(name):
+    """회전 중에는 이름 속 그립 표기가 틀린 말이 된다 — '랫풀다운(언더그립)'이 뉴트럴인 사이클. 화면 · 음성용으로 뗀다."""
+    t = re.sub(r"\s*\((?:오버그립|언더그립|뉴트럴 그립|오버 그립|언더 그립)\)", "", name)
+    t = re.sub(r"^(?:와이드\s*)?(?:오버그립|언더그립)\s+", "", t)
+    return t.strip() or name
+
+
+def parse_grip_rotation(wb):
+    """사이클_그립회전 — {start, rows:[[일차, 종목, 주기, [그립…], 메모]]}. 시트가 없으면 None."""
+    if GRIP_SHEET not in wb.sheetnames:
+        return None
+    ws = wb[GRIP_SHEET]
+    start = None
+    for r in range(1, 6):
+        if s(ws.cell(r, 1).value) == "회전 시작 사이클":
+            start = int(num(ws.cell(r, 3).value, 0)) or None
+    hdr = next((r for r in range(1, 15) if s(ws.cell(r, 1).value) == "일차"), None)
+    if not start or hdr is None:
+        return None
+    rows = []
+    for r in range(hdr + 1, ws.max_row + 1):
+        d = ws.cell(r, 1).value
+        if not isinstance(d, (int, float)):
+            break
+        per = max(1, min(3, int(num(ws.cell(r, 3).value, 3))))
+        grips = [s(ws.cell(r, 4 + i).value) for i in range(per)]
+        if not all(grips):
+            sys.exit(f"[중단] {GRIP_SHEET} {r}행 '{s(ws.cell(r, 2).value)}' — 주기 {per}인데 회전 칸이 비었습니다.")
+        rows.append([str(int(d)), s(ws.cell(r, 2).value), per, grips, s(ws.cell(r, 7).value)])
+    return {"start": start, "rows": rows}
+
+
+def say_grip(t):
+    """그립 칸을 읽을 말로 — '오버 넓게 (양손)' → '오버 그립 넓게 양손'. 앱 쪽 키는 '그립:' + 칸 글자 그대로."""
+    t = re.sub(r"[()（）·/]", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return re.sub(r"^(오버|언더|뉴트럴)(?=\s|$)", r"\1 그립", t)
+
+
 def parse_split_check(wb):
     """분할_주간계획 부위별 표('부위' 머리글 · 세트 · 구성) — 주 단위라 환산이 없다."""
     ws = wb["분할_주간계획"]
@@ -1082,9 +1124,14 @@ def build_voice(site, data):
     SAPI가 없어 못 구우면 지난 번 결과(sprite.json)를 그대로 쓴다.
     """
     say = {}
+    for row in ((data.get("gripRot") or {}).get("rows") or []):
+        for g in row[3]:
+            say.setdefault("그립:" + g, say_grip(g))
     for src in ("home", "back"):
         for day in data.get(src, {}).values():
             for e in all_ex(day):
+                if e.get("gname"):
+                    say.setdefault(e["gname"], voice_build.say_name(e["gname"]))
                 for raw, fn in ((e.get("name", ""), voice_build.say_name),
                                 (e.get("mg", ""), voice_build.say_mg)):
                     if raw and raw not in say:
@@ -1179,6 +1226,17 @@ def build(xlsx_path, out_path):
             data["back"][d] = {"t": "휴식", "sub": "", "rest": True}
     data["back"] = {d: data["back"][d] for d in order}
     data["backOrder"] = order
+    # 등 그립 회전(2026-11-01) — 회전표 종목을 일차 시트 종목에 붙인다. 이름이 안 맞으면 빌드에서 바로 알린다
+    gr = parse_grip_rotation(wb)
+    data["gripRot"] = gr
+    if gr:
+        for d, name, per, grips, memo in gr["rows"]:
+            hit = [e for e in all_ex(data["back"].get(d, {})) if e.get("name") == name]
+            if not hit:
+                sys.exit(f"[중단] {GRIP_SHEET} '{d}일차 {name}' — 그 일차 시트에 같은 이름의 종목이 없습니다(글자까지 같아야 함).")
+            for e in hit:
+                e["grip"] = {"p": per, "g": grips}
+                e["gname"] = grip_display_name(name)
     # 보조 추적 종목이 어느 일차에 있는지 — 증량 탭이 일차별로 묶는다. 없는 종목은 '' (추적 안 함)
     for k, L in data["config"]["lifts"].items():
         if L.get("acc"):
@@ -1205,6 +1263,8 @@ def build(xlsx_path, out_path):
     if made:
         print(f"       아이콘 생성: {', '.join(made)}")
     train = sum(1 for _, _, n in data["plan"]["rows"] if n)
+    if data.get("gripRot"):
+        print(f"  등 그립 회전: {len(data['gripRot']['rows'])}종목 · {data['gripRot']['start']}사이클부터")
     print(f"  훈련 {train}일 · 사이클당 {data['plan']['total']}세트 "
           f"(주당 환산 {round(data['plan']['total'] * 7 / len(data['plan']['rows']))}) "
           f"· {data['config']['weeks']}사이클 계획")
@@ -1403,6 +1463,9 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .mic-cap{flex:1 1 180px;font-size:11px;line-height:1.45;color:var(--dim)}
 #tm-rec .mic-cap{flex-basis:100%;text-align:center}
 .mg .wu{color:var(--sq)}
+.grip{margin-top:4px;font-size:13px;font-weight:700;color:var(--bp)}
+.grip i{font-style:normal;font-weight:600;color:var(--mute)}
+.tm-grip{display:block;margin-top:6px;font-size:18px;font-weight:800;color:var(--bp)}
 .tm-wu{display:inline-block;margin-top:8px;padding:5px 12px;border-radius:999px;font-size:13.5px;
   font-weight:800;color:var(--bg);background:var(--sq)}
 .mic-dn{padding-left:10px;padding-right:10px}
@@ -1814,9 +1877,10 @@ function exHTML(e,prefix,sets,timed){
       <div class="ex-p">${e.s===0 ? `<b class="hold-w">보류</b><span class="num">${esc(e.r)}</span>`
         : `<b class="hold-w">${dlOn()?"디로드 — 쉼":e.rw+"주차 복귀"}</b><span class="num">설계 ${e.s} × ${esc(e.r)}</span>`}
       </div></div></article>`;
+  const gp = mode==="back" ? gripOf(e) : null;
   return `<article class="ex"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
-      <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
+      <div class="ex-t"><h4>${esc(gp&&e.gname?e.gname:e.name)}</h4>${gp?`<div class="grip">그립 · ${esc(gp.t)} <i>(회전 ${gp.n})</i></div>`:""}<div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
       <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${wEd?'edited':''}"${wAttr}>${esc(w)}</span></div></div>
     ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${e.wk}초 · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button><span class="tm-none wk-ed${OVT[key]?" edited":""}" data-wkkey="${escAttr(key)}">수행 ${e.wk}초 &#9998;</span></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
@@ -2081,6 +2145,17 @@ function cycDayOf(t){
   const k=Math.floor(n/CLEN);
   return {day:D.backOrder[n%CLEN], round:k+1, start:dayAdd(CANCHOR,k*CLEN)};
 }
+/* ── 등 그립 회전 (2026-11-01) ── 엑셀 '사이클_그립회전'. 종목 · 세트는 그대로, 그립만 사이클마다 돈다.
+   회전 = (오늘의 사이클 − 시작 사이클) ÷ 주기의 나머지. 시작 전에는 null — 시트 이름의 그립 그대로다.
+   일차를 다시 눌러도 사이클 번호는 지켜지므로(setCycToday) 회전 순서가 꼬이지 않는다 */
+const GR = D.gripRot || null;
+function gripOf(e){
+  if(!GR||!e||!e.grip) return null;
+  const c=cycDayOf(ymd(new Date())); if(!c) return null;
+  const k=c.round-GR.start; if(k<0) return null;
+  return {n:(k%3)+1, t:e.grip.g[k%e.grip.p]};
+}
+const exName = e => gripOf(e)&&e.gname ? e.gname : e.name;
 function setCycToday(d){
   const i=D.backOrder.indexOf(d); if(i<0) return;
   const t=ymd(new Date()), c=cycDayOf(t), r=c?c.round:1;
@@ -2285,7 +2360,23 @@ function backPlanHTML(){
   <tr><td style="font-weight:800">합계</td><td></td><td class="num" style="font-weight:800">${p.total}</td><td class="num" style="font-weight:800">${p.mins}</td></tr>
   </tbody></table>
   <p class="footnote">주당 환산 ${Math.round(p.total*7/CLEN*10)/10}세트 · 분은 본운동(스트레칭 · 웜업 30분과 샤워 20분은 따로). 줄을 누르면 그 일차로 간다.</p>
+  ${gripTableHTML()}
   ${notesHTML(p.notes)}`;
+}
+function gripTableHTML(){
+  if(!GR) return "";
+  const c=cycDayOf(ymd(new Date())), k=c?c.round-GR.start:-1;
+  const startDay=CANCHOR?dayAdd(CANCHOR,(GR.start-1)*CLEN):"";
+  const now = k>=0 ? `지금 ${c.round}사이클 · 회전 ${(k%3)+1}` :
+    `${GR.start}사이클${startDay?`(${+startDay.slice(5,7)}/${+startDay.slice(8)})`:""}부터 시작 — 그 전에는 시트 이름의 그립 그대로`;
+  const cur = r => k>=0 && (k%3)===r;
+  return `<h3 class="sub-h">등 그립 회전</h3><p class="daysub">${now}. 종목 · 세트는 그대로, 그립만 사이클마다 돈다. 종목 카드 · 세션 타이머 · 다음 종목 음성에 자동으로 뜬다.</p>
+  <table class="tbl"><thead><tr><th>일차</th><th style="text-align:left">종목</th>${[0,1,2].map(i=>`<th style="${cur(i)?"color:var(--bp)":""}">회전 ${i+1}</th>`).join("")}</tr></thead><tbody>
+  ${GR.rows.map(([d,n,per,g,memo])=>`<tr><td>${esc(d)}</td><td class="wrap">${esc(n)}${memo?`<br><span style="color:var(--mute);font-size:12px">${esc(memo)}</span>`:""}</td>${per===3 ? [0,1,2].map(i=>
+      `<td class="wrap" style="${cur(i)?"font-weight:800;color:var(--bp)":""}">${esc(g[i])}</td>`).join("")
+    : `<td colspan="3" class="wrap">${per===1?esc(g[0])+" (고정)":`사이클마다 번갈아 — ${g.map(esc).join(" ↔ ")}`}${
+        k>=0?` · <b style="color:var(--bp)">이번: ${esc(g[k%per])}</b>`:""}</td>`}</tr>`).join("")}
+  </tbody></table>`;
 }
 /* 생수배송 대비 — 복귀_캐리 · 복귀_스텝박스. 스텝박스 주차는 캐리 1회차 토요일부터 날짜로 센다.
    캐리는 회차(토 · 수) 단위 — 오늘 이후 첫 회차가 오늘(캐리 날) 또는 다음 캐리다 */
@@ -2689,7 +2780,9 @@ function koMic(s){
 /* 다음 종목 안내. 값은 그 순간 화면에 떠 있는 것을 그대로 읽으므로
    주차 증량도 앱에서 고친 중량도 따로 손댈 데가 없다. */
 function tmNextKeys(e,sets){
-  const k=["다음 종목",",",e.name];
+  const gp = mode==="back" ? gripOf(e) : null;
+  const k=["다음 종목",",",gp?exName(e):e.name];
+  if(gp) k.push(",","그립:"+gp.t);
   if(e.mg) k.push(",",e.mg);
   k.push(",");
   k.push.apply(k,(koNum(String(sets))||[]).concat(["세트"]));
@@ -2914,7 +3007,9 @@ function tmPaint(){
   document.getElementById("tm-dial").style.setProperty("--phase",ph[1]);
   document.getElementById("tm-phase").textContent=ph[0]+(s.drop?" · 드롭":"");
   document.getElementById("tm-ctx").textContent=TM.title+" · "+s.li+"/"+s.ln+" 종목";
-  document.getElementById("tm-name").textContent=s.e.name;
+  /* 그립 회전 종목은 이름 아래에 이번 사이클 그립을 크게 — 타이머에서 나가지 않고 본다 */
+  const gNow = mode==="back" ? gripOf(s.e) : null;
+  document.getElementById("tm-name").innerHTML=esc(gNow?exName(s.e):s.e.name)+(gNow?`<span class="tm-grip">그립 · ${esc(gNow.t)}</span>`:"");
   tmSet("tm-meta",tmMeta(s.e));
   document.getElementById("tm-set").textContent="세트 "+s.set+" / "+s.sets+(s.drop?" · 드롭세트":"");
   /* 예열 — 이 종목 1세트 앞 준비 시간이거나 1세트 중이면 큰 띠로. 다음 종목 예고 줄에도 붙인다 */
@@ -2932,7 +3027,7 @@ function tmPaint(){
      읊어 주는 내용과 같다. 소리를 껐거나 못 들었을 때의 몫이기도 하다.
      여기 무게도 눌러 고칠 수 있다 — 다음 종목 준비는 쉬는 동안 하는 것이니 */
   tmSet("tm-up", (nx&&nx.e!==s.e)
-    ? "다음 ▸ <b>"+esc(nx.e.name)+"</b><i>"+tmMeta(nx.e)+" · "+nx.sets+"세트"+(wuNext?' · <b style="color:var(--sq)">예열 1세트</b>':"")+"</i>"
+    ? "다음 ▸ <b>"+esc(mode==="back"?exName(nx.e):nx.e.name)+"</b>"+((g=>g?' <b style="color:var(--bp)">· 그립 '+esc(g.t)+"</b>":"")(mode==="back"?gripOf(nx.e):null))+"<i>"+tmMeta(nx.e)+" · "+nx.sets+"세트"+(wuNext?' · <b style="color:var(--sq)">예열 1세트</b>':"")+"</i>"
     : !nx ? "마지막 세트"
     : s.p==="prep" ? "이어서 ▸ 운동 "+mmss(nx.t)+" × "+nx.sets+"세트"
     : nx.p==="rest" ? "다음 ▸ 휴식 "+mmss(nx.t)

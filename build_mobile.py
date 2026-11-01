@@ -902,14 +902,17 @@ def parse_grip_rotation(wb):
         if not isinstance(d, (int, float)):
             break
         per = max(1, min(3, int(num(ws.cell(r, 3).value, 3))))
-        grips = [s(ws.cell(r, 4 + i).value) for i in range(per)]
+        cells = [s(ws.cell(r, 4 + i).value) for i in range(per)]
+        # ' | ' 뒤는 자세 큐(2026-11-01) — 화면에만 뜨고 음성 · 원암 판정은 앞부분(그립)으로
+        grips = [c.split("|")[0].strip() for c in cells]
+        cues = [c.split("|", 1)[1].strip() if "|" in c else "" for c in cells]
         if not all(grips):
             sys.exit(f"[중단] {GRIP_SHEET} {r}행 '{s(ws.cell(r, 2).value)}' — 주기 {per}인데 회전 칸이 비었습니다.")
         h = s(ws.cell(r, 8).value)
         if h and h not in ("양손 먼저", "원암 먼저"):
             sys.exit(f"[중단] {GRIP_SHEET} H{r} '{h}' — '양손 먼저' · '원암 먼저' · 빈칸 중 하나여야 합니다.")
         arm = {"양손 먼저": 0, "원암 먼저": 1}.get(h)
-        rows.append([str(int(d)), s(ws.cell(r, 2).value), per, grips, s(ws.cell(r, 7).value), arm])
+        rows.append([str(int(d)), s(ws.cell(r, 2).value), per, grips, s(ws.cell(r, 7).value), arm, cues])
     return {"start": start, "rows": rows}
 
 
@@ -1248,7 +1251,7 @@ def build(xlsx_path, out_path):
     gr = parse_grip_rotation(wb)
     data["gripRot"] = gr
     if gr:
-        for d, name, per, grips, memo, arm in gr["rows"]:
+        for d, name, per, grips, memo, arm, cues in gr["rows"]:
             hit = [e for e in all_ex(data["back"].get(d, {})) if e.get("name") == name]
             if not hit:
                 sys.exit(f"[중단] {GRIP_SHEET} '{d}일차 {name}' — 그 일차 시트에 같은 이름의 종목이 없습니다(글자까지 같아야 함).")
@@ -1256,6 +1259,8 @@ def build(xlsx_path, out_path):
                 e["grip"] = {"p": per, "g": grips}
                 if arm is not None:
                     e["grip"]["a"] = arm
+                if any(cues):
+                    e["grip"]["c"] = cues
                 if "원암" in name:          # 시트 수행 초가 원암(좌우) 기준인 종목
                     e["grip"]["b"] = 1
                 e["gname"] = grip_display_name(name)
@@ -1488,6 +1493,8 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .grip{margin-top:4px;font-size:13px;font-weight:700;color:var(--bp)}
 .grip i{font-style:normal;font-weight:600;color:var(--mute)}
 .tm-grip{display:block;margin-top:6px;font-size:18px;font-weight:800;color:var(--bp)}
+.tm-cue{display:block;margin-top:4px;font-size:15px;font-weight:700;color:var(--sq)}
+.grip.cue{color:var(--sq)}
 .tm-wu{display:inline-block;margin-top:8px;padding:6px 12px;border-radius:14px;font-size:13.5px;line-height:1.4;
   max-width:100%;text-align:center;font-weight:800;color:var(--bg);background:var(--sq)}
 .mic-dn{padding-left:10px;padding-right:10px}
@@ -1902,7 +1909,7 @@ function exHTML(e,prefix,sets,timed){
   const gp = mode==="back" ? gripOf(e) : null;
   return `<article class="ex"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
-      <div class="ex-t"><h4>${esc(gp&&e.gname?e.gname:e.name)}</h4>${gp?`<div class="grip">그립 · ${esc(gp.t)} <i>(회전 ${gp.n})</i></div>`:""}${e.wu?`<div class="grip" style="color:var(--sq)">예열 · ${esc(e.wut||"50% × 6~8")}</div>`:""}<div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
+      <div class="ex-t"><h4>${esc(gp&&e.gname?e.gname:e.name)}</h4>${gp?`<div class="grip">그립 · ${esc(gp.t)} <i>(회전 ${gp.n})</i></div>${gp.cue?`<div class="grip cue">▸ ${esc(gp.cue)}</div>`:""}`:""}${e.wu?`<div class="grip" style="color:var(--sq)">예열 · ${esc(e.wut||"50% × 6~8")}</div>`:""}<div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
       <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${wEd?'edited':''}"${wAttr}>${esc(w)}</span></div></div>
     ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${armWk(e,e.wk)}초${armWk(e,e.wk)!==e.wk?` (${gp&&gp.arm}${gp&&gp.arm==="원암"?" · 좌우":""})`:""} · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button><span class="tm-none wk-ed${OVT[key]?" edited":""}" data-wkkey="${escAttr(key)}">수행 ${e.wk}초 &#9998;</span></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
@@ -2180,7 +2187,8 @@ function gripOf(e){
   let arm=null;
   if(e.grip.a!=null) arm = /^오버/.test(g) ? "양손" : ((k+e.grip.a)%2 ? "원암" : "양손");
   else arm = /원암/.test(g) ? "원암" : /양손/.test(g) ? "양손" : null;
-  return {n:(k%3)+1, g:g, arm:arm, ax:e.grip.a!=null, t:(e.grip.a!=null ? g+" · "+arm : g)};
+  const cue=(e.grip.c&&e.grip.c[k%e.grip.p])||"";
+  return {n:(k%3)+1, g:g, arm:arm, ax:e.grip.a!=null, t:(e.grip.a!=null ? g+" · "+arm : g), cue:cue};
 }
 /* 원암 차례면 수행 시간 2배(좌우) · 최소 120초(2026-11-01 사용자 — 원암 레터럴 · 리버스 플라이와 같은 선).
    회전표 종목이 원암인 사이클에만 건다. 원래 원암 종목(시트 초가 좌우 기준)은 원암 차례면 120초 이상,
@@ -2190,7 +2198,7 @@ function armWk(e,wk){
   if(!gp||!gp.arm||!wk) return wk;
   const b1=!!e.grip.b;
   if(gp.arm==="원암") return Math.max(120, b1 ? wk : wk*2);
-  if(gp.arm==="양손"&&b1) return Math.max(40,Math.round(wk/2));
+  if(gp.arm==="양손"&&b1) return 40;              /* 원암 케이블 로우 120초 → 양손 시티드 40초(보통 양손 종목 선) */
   return wk;
 }
 const exName = e => gripOf(e)&&e.gname ? e.gname : e.name;
@@ -2420,9 +2428,9 @@ function gripTableHTML(){
   const cur = r => k>=0 && (k%3)===r;
   return `<h3 class="sub-h">등 그립 회전</h3><p class="daysub">${now}. 종목 · 세트는 그대로, 그립만 사이클마다 돈다. 종목 카드 · 세션 타이머 · 다음 종목 음성에 자동으로 뜬다.</p>
   <table class="tbl"><thead><tr><th>일차</th><th style="text-align:left">종목</th>${[0,1,2].map(i=>`<th style="${cur(i)?"color:var(--bp)":""}">회전 ${i+1}</th>`).join("")}</tr></thead><tbody>
-  ${GR.rows.map(([d,n,per,g,memo,arm])=>`<tr><td>${esc(d)}</td><td class="wrap">${esc(n)}${arm!=null?`<br><b style="font-size:12px">원암 ↔ 양손 2사이클 교대 (${arm?"원암":"양손"} 먼저 · 오버 그립 차례는 양손)${
+  ${GR.rows.map(([d,n,per,g,memo,arm,cues])=>`<tr><td>${esc(d)}</td><td class="wrap">${esc(n)}${arm!=null?`<br><b style="font-size:12px">원암 ↔ 양손 2사이클 교대 (${arm?"원암":"양손"} 먼저 · 오버 그립 차례는 양손)${
       k>=0?` · <span style="color:var(--bp)">이번: ${/^오버/.test(g[k%per])?"양손":((k+arm)%2?"원암":"양손")}</span>`:""}</b>`:""}${memo?`<br><span style="color:var(--mute);font-size:12px">${esc(memo)}</span>`:""}</td>${per===3 ? [0,1,2].map(i=>
-      `<td class="wrap" style="${cur(i)?"font-weight:800;color:var(--bp)":""}">${esc(g[i])}</td>`).join("")
+      `<td class="wrap" style="${cur(i)?"font-weight:800;color:var(--bp)":""}">${esc(g[i])}${cues&&cues[i]?`<br><span style="color:var(--sq);font-size:12px">▸ ${esc(cues[i])}</span>`:""}</td>`).join("")
     : `<td colspan="3" class="wrap">${per===1?esc(g[0])+" (고정)":`사이클마다 번갈아 — ${g.map(esc).join(" ↔ ")}`}${
         k>=0?` · <b style="color:var(--bp)">이번: ${esc(g[k%per])}</b>`:""}</td>`}</tr>`).join("")}
   </tbody></table>`;
@@ -3058,7 +3066,7 @@ function tmPaint(){
   document.getElementById("tm-ctx").textContent=TM.title+" · "+s.li+"/"+s.ln+" 종목";
   /* 그립 회전 종목은 이름 아래에 이번 사이클 그립을 크게 — 타이머에서 나가지 않고 본다 */
   const gNow = mode==="back" ? gripOf(s.e) : null;
-  document.getElementById("tm-name").innerHTML=esc(gNow?exName(s.e):s.e.name)+(gNow?`<span class="tm-grip">그립 · ${esc(gNow.t)}</span>`:"");
+  document.getElementById("tm-name").innerHTML=esc(gNow?exName(s.e):s.e.name)+(gNow?`<span class="tm-grip">그립 · ${esc(gNow.t)}</span>${gNow.cue?`<span class="tm-cue">▸ ${esc(gNow.cue)}</span>`:""}`:"");
   tmSet("tm-meta",tmMeta(s.e));
   document.getElementById("tm-set").textContent="세트 "+s.set+" / "+s.sets+(s.drop?" · 드롭세트":"");
   /* 예열 — 이 종목 1세트 앞 준비 시간이거나 1세트 중이면 큰 띠로. 다음 종목 예고 줄에도 붙인다 */

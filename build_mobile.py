@@ -2156,6 +2156,16 @@ function gripOf(e){
   return {n:(k%3)+1, t:e.grip.g[k%e.grip.p]};
 }
 const exName = e => gripOf(e)&&e.gname ? e.gname : e.name;
+/* 중량 칸 w를 쓰는 사이클 번호(디로드 사이클은 건너뜀). 기준일 앞 칸이거나 표 밖이면 null */
+function roundOfWeek(w){
+  if(!CANCHOR||!CA) return null;
+  for(let j=0;j<WEEKS+20;j++){
+    const b=backWeekOf(dayAdd(CANCHOR,j*CLEN));
+    if(b&&!b.deload&&b.cycle===w) return b.round;
+    if(b&&b.cycle>w) break;
+  }
+  return null;
+}
 function setCycToday(d){
   const i=D.backOrder.indexOf(d); if(i<0) return;
   const t=ymd(new Date()), c=cycDayOf(t), r=c?c.round:1;
@@ -3217,11 +3227,13 @@ function render(){
   document.getElementById("weekbar").style.display = "flex";
   document.getElementById("wk-track").style.display = "flex";
   const wkn=document.getElementById("wk-num"), dlh=dlOn();
-  wkn.textContent=dlh?"디로드":week; wkn.style.fontSize=dlh?"18px":"";
-  /* 큰 숫자는 중량 사이클이다. 볼륨이 그보다 앞서 있으면 여기서 같이 밝힌다 */
-  document.getElementById("wk-of").textContent=`WEEK / ${WLAST}`
-    + (mode==="back"||true ? (dlOn()?" · 디로드 사이클":" · 사이클마다 한 칸")
-       : rampOn()&&vWeek(week)!==week ? ` · 볼륨 ${vWeek(week)}주` : "");
+  /* 2026-11-01 사용자 요청 — 사이클 번호와 중량 칸을 둘 다. '14'만 보이면 14사이클로 읽힌다.
+     사이클 = 지금 보고 있는 중량 칸을 쓰는 사이클(−/+로 칸을 옮기면 같이 따라간다) · 디로드 중이면 오늘 사이클 */
+  const rnd = dlh ? (bToday()||{}).round : roundOfWeek(week);
+  wkn.textContent=(rnd?rnd+"사이클 · ":"")+(dlh?"디로드":week+"칸");
+  wkn.style.fontSize=dlh||rnd?"19px":"";
+  document.getElementById("wk-of").textContent=`중량 칸 / ${WLAST}`
+    + (dlh?" · 세트 절반":" · 사이클마다 한 칸");
   document.getElementById("wk-track").innerHTML=
     Array.from({length:WEEKS},(_,i)=>`<span class="${i<week-WBASE+1?'on':''}"></span>`).join("");
   document.getElementById("wk-down").disabled=week<=WBASE;

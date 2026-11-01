@@ -2182,12 +2182,14 @@ function gripOf(e){
   else arm = /원암/.test(g) ? "원암" : /양손/.test(g) ? "양손" : null;
   return {n:(k%3)+1, g:g, arm:arm, ax:e.grip.a!=null, t:(e.grip.a!=null ? g+" · "+arm : g)};
 }
-/* 원암 차례면 수행 시간 2배(좌우). 원래 원암 종목(시트 초가 좌우 기준)이 양손 차례면 절반 · 최소 40초 */
+/* 원암 차례면 수행 시간 2배(좌우) · 최소 120초(2026-11-01 사용자 — 원암 레터럴 · 리버스 플라이와 같은 선).
+   회전표 종목이 원암인 사이클에만 건다. 원래 원암 종목(시트 초가 좌우 기준)은 원암 차례면 120초 이상,
+   양손 차례면 절반 · 최소 40초 */
 function armWk(e,wk){
   const gp = mode==="back" ? gripOf(e) : null;
   if(!gp||!gp.arm||!wk) return wk;
   const b1=!!e.grip.b;
-  if(gp.arm==="원암"&&!b1) return wk*2;
+  if(gp.arm==="원암") return Math.max(120, b1 ? wk : wk*2);
   if(gp.arm==="양손"&&b1) return Math.max(40,Math.round(wk/2));
   return wk;
 }

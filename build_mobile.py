@@ -916,6 +916,62 @@ def parse_grip_rotation(wb):
     return {"start": start, "rows": rows}
 
 
+ALT_SHEET = "사이클_종목교대"
+# 사이클마다 갈아 끼우는 칸 — 일차 시트 종목(짝수 사이클)과 교대표 종목(홀수 사이클)이 이 칸들만 서로 바꾼다.
+# 번호(#) · 세트는 자리 그대로다(세트가 다르면 일차 합계가 틀어지니 빌드에서 막는다)
+ALT_KEYS = ("name", "mg", "w", "s", "r", "wk", "rt", "rl", "ss", "memo", "alt", "ind", "drop",
+            "lift", "trk", "pct", "lo", "wu", "wut", "mic", "rw")
+# 교대표 중량 칸 수식 — '=시작중량_설정!$E$9' 또는 '=MAX(20,MROUND(시작중량_설정!$E$9*0.95,1))'
+ALT_REF = re.compile(r"^=(?:MAX\(20,\s*MROUND\()?시작중량_설정!\$E\$(\d+)(?:\*([\d.]+),\s*1\)\))?$")
+
+
+def parse_cycle_alt(wb, wbf):
+    """사이클_종목교대 (2026-11-02) — [{일차, 시트 종목, 홀짝, 변형}]. 시트가 없으면 [].
+    같은 자리 · 같은 세트에서 사이클마다 종목만 바뀐다. 표의 종목이 '차례' 칸 사이클(홀수/짝수)에,
+    일차 시트 종목이 나머지 사이클에 들어간다. 중량 칸이 시작중량_설정 E열을 그대로 가리키면
+    그 리프트의 사다리를 따라간다 — 메인 넷은 pct(백오프와 같은 길) · 추적 보조는 trk."""
+    if ALT_SHEET not in wb.sheetnames:
+        return []
+    ws, wf = wb[ALT_SHEET], wbf[ALT_SHEET]
+    hdr = next((r for r in range(1, 15) if s(ws.cell(r, 1).value) == "일차"), None)
+    if hdr is None:
+        return []
+    cols = {s(ws.cell(hdr, c).value): c for c in range(1, ws.max_column + 1)}
+    need = ("일차 시트 종목", "차례", "종목", "근육군", "중량(Kg)", "세트", "횟수",
+            "수행(초)", "휴식(초)", "메모", "대체 종목")
+    miss = [k for k in need if k not in cols]
+    if miss:
+        sys.exit(f"[중단] {ALT_SHEET} 머리글에 {', '.join(miss)} 칸이 없습니다.")
+    C = lambda k, r: ws.cell(r, cols[k]).value
+    by_row = {m["start_row"]: k for k, m in LIFT_META.items()}
+    rows = []
+    for r in range(hdr + 1, ws.max_row + 1):
+        d = ws.cell(r, 1).value
+        if not isinstance(d, (int, float)):
+            break
+        turn = s(C("차례", r))
+        if turn not in ("홀수 사이클", "짝수 사이클"):
+            sys.exit(f"[중단] {ALT_SHEET} {r}행 차례 '{turn}' — '홀수 사이클' · '짝수 사이클' 중 하나여야 합니다.")
+        v = {k: None for k in ALT_KEYS}
+        v.update({"name": s(C("종목", r)), "mg": s(C("근육군", r)), "s": int(num(C("세트", r))),
+                  "r": s(C("횟수", r)), "wk": int(num(C("수행(초)", r))), "rt": int(num(C("휴식(초)", r))),
+                  "memo": s(C("메모", r)), "alt": s(C("대체 종목", r)), "ind": "", "drop": 0, "rw": 1,
+                  "w": s(C("중량(Kg)", r)) or "—"})
+        if "슈퍼세트" in cols:
+            v["ss"] = s(C("슈퍼세트", r)) or None
+        m = ALT_REF.match(s(wf.cell(r, cols["중량(Kg)"]).value))
+        k = by_row.get(int(m.group(1))) if m else None
+        if k and LIFT_META[k].get("acc"):
+            v["lift"], v["trk"] = k, True
+        elif k:
+            v["lift"], v["pct"] = k, float(m.group(2) or 1)
+        if v["name"] in MICRO:
+            v["mic"] = MICRO[v["name"]]
+        rows.append({"day": str(int(d)), "base": s(C("일차 시트 종목", r)),
+                     "side": "odd" if turn == "홀수 사이클" else "even", "v": v})
+    return rows
+
+
 def say_grip(t):
     """그립 칸을 읽을 말로 — '오버 넓게 (양손)' → '오버 그립 넓게 양손'. 앱 쪽 키는 '그립:' + 칸 글자 그대로."""
     t = re.sub(r"[()（）·/]", " ", t)
@@ -1150,16 +1206,17 @@ def build_voice(site, data):
             say.setdefault("팔:양손", "양손")
     for src in ("home", "back"):
         for day in data.get(src, {}).values():
-            for e in all_ex(day):
+            # 사이클 종목 교대 — 오늘 안 얹힌 쪽 이름도 미리 굽는다(앱이 사이클마다 바꿔 읽는다)
+            for e in [x for e0 in all_ex(day) for x in [e0] + list((e0.get("cv") or {}).values())]:
                 if e.get("gname"):
                     say.setdefault(e["gname"], voice_build.say_name(e["gname"]))
-                for raw, fn in ((e.get("name", ""), voice_build.say_name),
-                                (e.get("mg", ""), voice_build.say_mg)):
+                for raw, fn in ((e.get("name") or "", voice_build.say_name),
+                                (e.get("mg") or "", voice_build.say_mg)):
                     if raw and raw not in say:
                         say[raw] = fn(raw)
                 # 숫자·범위는 앱이 조립한다. 여기서 굽는 건 예외 표기뿐이다
-                for raw, fn in ((str(e.get("r", "")), voice_build.say_reps),
-                                (str(e.get("w", "")), voice_build.say_weight)):
+                for raw, fn in ((str(e.get("r") or ""), voice_build.say_reps),
+                                (str(e.get("w") or ""), voice_build.say_weight)):
                     if (raw and raw not in say and raw != "위 참조"
                             and not voice_build.is_plain_number(raw)):
                         say[raw] = fn(raw)
@@ -1264,6 +1321,29 @@ def build(xlsx_path, out_path):
                 if "원암" in name:          # 시트 수행 초가 원암(좌우) 기준인 종목
                     e["grip"]["b"] = 1
                 e["gname"] = grip_display_name(name)
+    # 사이클 종목 교대(2026-11-02) — 교대표 종목을 일차 시트 종목 자리에 붙인다. 앱이 오늘 사이클로 한쪽을 얹는다
+    alts = parse_cycle_alt(wb, wbf)
+    data["cycAlt"] = [[a["day"], a["base"], a["v"]["name"], a["side"]] for a in alts]
+    for a in alts:
+        hit = [e for e in all_ex(data["back"].get(a["day"], {})) if e.get("name") == a["base"]]
+        if len(hit) != 1:
+            sys.exit(f"[중단] {ALT_SHEET} '{a['day']}일차 {a['base']}' — 그 일차 시트에 같은 이름의 종목이 "
+                     f"{'없습니다(글자까지 같아야 함)' if not hit else '둘 이상입니다'}.")
+        e, v = hit[0], a["v"]
+        if e.get("grip") or e.get("cv"):
+            sys.exit(f"[중단] {ALT_SHEET} '{a['day']}일차 {a['base']}' — 그립 회전이나 다른 교대가 이미 걸린 종목입니다.")
+        if v["s"] != e["s"]:
+            sys.exit(f"[중단] {ALT_SHEET} '{v['name']}' {v['s']}세트 ≠ 일차 시트 '{a['base']}' {e['s']}세트 — "
+                     "같은 자리는 같은 세트여야 일차 합계가 맞습니다.")
+        if v["ss"] is None:
+            v["ss"] = e.get("ss", "")
+        other = "even" if a["side"] == "odd" else "odd"
+        e["cv"] = {a["side"]: v, other: {k: e.get(k) for k in ALT_KEYS}}
+        # 추적 보조가 사이클 걸러 한 번이 되면 미달 칸 사이에 빈 칸(안 한 사이클)이 끼인다 —
+        # 사다리가 앞 두 칸을 보게 한다(엑셀 증량기록도 같은 식 · 2026-11-02)
+        for x in (v, e["cv"][other]):
+            if x.get("trk") and x.get("lift") in data["config"]["lifts"]:
+                data["config"]["lifts"][x["lift"]]["lb"] = 2
     # 보조 추적 종목이 어느 일차에 있는지 — 증량 탭이 일차별로 묶는다. 없는 종목은 '' (추적 안 함)
     for k, L in data["config"]["lifts"].items():
         if L.get("acc"):
@@ -1292,6 +1372,8 @@ def build(xlsx_path, out_path):
     train = sum(1 for _, _, n in data["plan"]["rows"] if n)
     if data.get("gripRot"):
         print(f"  등 그립 회전: {len(data['gripRot']['rows'])}종목 · {data['gripRot']['start']}사이클부터")
+    for d, base, name, side in data.get("cycAlt") or []:
+        print(f"  사이클 종목 교대: {d}일차 {base} ↔ {name}({'홀수' if side == 'odd' else '짝수'} 사이클)")
     print(f"  훈련 {train}일 · 사이클당 {data['plan']['total']}세트 "
           f"(주당 환산 {round(data['plan']['total'] * 7 / len(data['plan']['rows']))}) "
           f"· {data['config']['weeks']}사이클 계획")
@@ -1691,6 +1773,38 @@ const WEEKS = D.config.weeks;
 const WBASE = D.config.base||1, WLAST = WBASE+WEEKS-1;
 const LIFT = D.config.lifts;
 
+/* ── 사이클 종목 교대 (2026-11-02 · 엑셀 '사이클_종목교대') ──────────────
+   같은 자리 · 같은 세트에서 사이클마다 종목만 바뀐다(8일차 인클라인 바벨 ↔ 정지 벤치). 종목 객체의 cv에
+   양쪽(odd · even)이 다 실려 있고, 오늘 사이클 쪽을 객체에 그대로 얹는다 — 카드 · 타이머 · 음성 · 덮어쓰기가
+   전부 얹힌 이름과 중량을 본다. 사이클 번호는 그립 회전과 같은 셈(1일차 기준일에서 9일씩 · 디로드도 한 번).
+   덮어쓰기 정리보다 먼저 돌아야 해서 아래 달력 함수를 못 쓰고 날짜 셈을 따로 둔다(기준일 키 wk-canchor 같음) */
+function altRound(){
+  let a=(D.cycAnchor&&D.cycAnchor.date)||null;
+  try{ const o=localStorage.getItem("wk-canchor"); if(o) a=o; }catch(e){}
+  if(!a) return null;
+  const p=a.split("-").map(Number), t=new Date();
+  const n=Math.round((new Date(t.getFullYear(),t.getMonth(),t.getDate())-new Date(p[0],p[1]-1,p[2]))/86400000);
+  return n<0 ? null : Math.floor(n/D.backOrder.length)+1;
+}
+let ALT_ON=null;                     /* 지금 얹힌 쪽 — "odd" · "even" (기준일 전이면 even = 일차 시트 그대로) */
+const altEach = f => { for(const d in (D.back||{})){ const day=D.back[d]; if(!day||day.rest) continue;
+  (day.ex||[]).concat(day.groups?day.groups.reduce((a,g)=>a.concat(g[1]),[]):[]).forEach(e=>{ if(e.cv) f(e,d); }); } };
+function applyAlt(){
+  const r=altRound(), side=(r!=null&&r%2===1)?"odd":"even";
+  if(side===ALT_ON) return false;
+  ALT_ON=side; altEach(e=>Object.assign(e,e.cv[side]));
+  return true;
+}
+applyAlt();
+/* 오늘 안 얹힌 쪽 이름의 덮어쓰기(수행 초 등)는 지우지 않는다 — 다음 사이클에 다시 쓴다 */
+function altIdle(key){
+  const p=key.split("|"); if(p[0]!=="back"||!ALT_ON) return false;
+  const day=D.back[p[1]]; if(!day||day.rest) return false;
+  const other=ALT_ON==="odd"?"even":"odd";
+  return (day.ex||[]).concat(day.groups?day.groups.reduce((a,g)=>a.concat(g[1]),[]):[])
+    .some(e=>e.cv&&e.cv[other].name===p[2]&&e.name!==p[2]);
+}
+
 /* ── 이 기기에서만 적용되는 중량 덮어쓰기 ─────────────────────────
    엑셀 원본은 건드리지 않는다. {수정값, 그때의 엑셀값}을 localStorage에 두고,
    엑셀 쪽 값이 바뀐 채 재배포되면 해당 덮어쓰기는 자동으로 버린다. */
@@ -1706,7 +1820,7 @@ function exByKey(key){
 const saveOV = () => { try{ localStorage.setItem(OVK, JSON.stringify(OV)); }catch(e){} };
 let ovStale=false;
 for(const k in OV.lifts){ if(!LIFT[k]||LIFT[k].start!==OV.lifts[k].base){ delete OV.lifts[k]; ovStale=true; } }
-for(const k in OV.ex){ const e=exByKey(k); if(!e||e.w!==OV.ex[k].base){ delete OV.ex[k]; ovStale=true; } }
+for(const k in OV.ex){ if(altIdle(k)) continue; const e=exByKey(k); if(!e||e.w!==OV.ex[k].base){ delete OV.ex[k]; ovStale=true; } }
 if(ovStale) saveOV();
 /* ── 수행 시간(초) 덮어쓰기 — 2026-10-25 사용자 요청(촉박한 종목을 엑셀 안 열고 늘리기).
    무게와 같은 규칙이다: {폰 값, 그때의 엑셀 G열 값}. 엑셀 쪽이 바뀐 채 재배포되면 버린다.
@@ -1719,7 +1833,7 @@ const saveOVT = () => { try{ localStorage.setItem(OVTK, JSON.stringify(OVT)); }c
   ["home","back"].forEach(m=>{ const days=D[m]||{};
     for(const t in days){ const d=days[t]; if(!d||d.rest) continue;
       (d.ex||[]).concat(d.groups?d.groups.reduce((a,g)=>a.concat(g[1]),[]):[]).forEach(e=>{ e.wk0=e.wk; }); } });
-  for(const k in OVT){ const e=exByKey(k);
+  for(const k in OVT){ if(altIdle(k)) continue; const e=exByKey(k);
     if(!e||!e.wk0||e.wk0!==OVT[k].base){ delete OVT[k]; ch=true; } else e.wk=OVT[k].wk; }
   if(ch) saveOVT(); })();
 function setWk(key,v){
@@ -1767,6 +1881,9 @@ function ladder(k,w,base){
   let v=base;
   for(let c=f0+1;c<=w;c++){
     if(missed(k,c-1)) continue;              /* 앞 주가 미달이면 그 중량을 한 번 더 */
+    /* 사이클 걸러 하는 추적 종목(lb 2 · 2026-11-02 인클라인 바벨)은 앞 칸이 안 한 사이클이라 비어 있다 —
+       그 앞 칸 미달도 본다(엑셀 증량기록 같은 식) */
+    if(L.lb===2&&c-2>f0-1&&missed(k,c-2)) continue;
     if((c-f0)%ev===0) v=R(v+L.inc);          /* 주기가 2면 격주에만 오른다(프레스) */
   }
   return v;
@@ -1909,7 +2026,7 @@ function exHTML(e,prefix,sets,timed){
   const gp = mode==="back" ? gripOf(e) : null;
   return `<article class="ex"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
-      <div class="ex-t"><h4>${esc(gp&&e.gname?e.gname:e.name)}</h4>${gp?`<div class="grip">그립 · ${esc(gp.t)} <i>(회전 ${gp.n})</i></div>${gp.cue?`<div class="grip cue">▸ ${esc(gp.cue)}</div>`:""}`:""}${e.wu?`<div class="grip" style="color:var(--sq)">예열 · ${esc(e.wut||"50% × 6~8")}</div>`:""}<div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
+      <div class="ex-t"><h4>${esc(gp&&e.gname?e.gname:e.name)}</h4>${gp?`<div class="grip">그립 · ${esc(gp.t)} <i>(회전 ${gp.n})</i></div>${gp.cue?`<div class="grip cue">▸ ${esc(gp.cue)}</div>`:""}`:""}${e.cv&&ALT_ON?`<div class="grip">사이클 교대 · ${ALT_ON==="odd"?"홀수":"짝수"} 사이클 <i>(다음 사이클은 ${esc(e.cv[ALT_ON==="odd"?"even":"odd"].name)})</i></div>`:""}${e.wu?`<div class="grip" style="color:var(--sq)">예열 · ${esc(e.wut||"50% × 6~8")}</div>`:""}<div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
       <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${wEd?'edited':''}"${wAttr}>${esc(w)}</span></div></div>
     ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${armWk(e,e.wk)}초${armWk(e,e.wk)!==e.wk?` (${gp&&gp.arm}${gp&&gp.arm==="원암"?" · 좌우":""})`:""} · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button><span class="tm-none wk-ed${OVT[key]?" edited":""}" data-wkkey="${escAttr(key)}">수행 ${e.wk}초 &#9998;</span></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
@@ -3267,6 +3384,9 @@ const tabsFor = m => (m==="home"
   : D.backOrder.filter(d=>!(D.back[d]&&D.back[d].rest)).map(d=>[d,d+"일"]).concat(D.prep?[["prep","배송"]]:[],[["bcal","달력"],["bplan","사이클"],["prog","증량"],["check","검산"]]));
 
 function render(){
+  /* 켜 둔 채 사이클이 넘어갔거나 일차 기준을 되돌렸으면 교대 종목을 다시 얹는다 —
+     수행 초 덮어쓰기는 불러올 때와 같은 규칙으로 새 이름 쪽에 다시 붙인다 */
+  if(applyAlt()) altEach((e,d)=>{ e.wk0=e.wk; const o=OVT["back|"+d+"|"+e.name]; if(o&&o.base===e.wk0) e.wk=o.wk; });
   const nav=document.getElementById("nav");
   nav.innerHTML=tabsFor(mode).map(([k,l])=>`<button data-k="${k}" aria-pressed="${k===tab}">${l}</button>`).join("");
   nav.querySelectorAll("button").forEach(b=>b.onclick=()=>{tab=b.dataset.k;render();window.scrollTo({top:0});});

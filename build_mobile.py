@@ -1798,7 +1798,10 @@ const LIFT = D.config.lifts;
    양쪽(odd · even)이 다 실려 있고, 오늘 사이클 쪽을 객체에 그대로 얹는다 — 카드 · 타이머 · 음성 · 덮어쓰기가
    전부 얹힌 이름과 중량을 본다. 사이클 번호는 그립 회전과 같은 셈(1일차 기준일에서 9일씩 · 디로드도 한 번).
    덮어쓰기 정리보다 먼저 돌아야 해서 아래 달력 함수를 못 쓰고 날짜 셈을 따로 둔다(기준일 키 wk-canchor 같음) */
+/* 시간표 탭(2026-11-05)이 다른 사이클을 계산하는 동안만 잠깐 그 사이클 번호를 쥔다 — 평소엔 null(오늘) */
+let VIEW_R=null;
 function altRound(){
+  if(VIEW_R!=null) return VIEW_R;
   let a=(D.cycAnchor&&D.cycAnchor.date)||null;
   try{ const o=localStorage.getItem("wk-canchor"); if(o) a=o; }catch(e){}
   if(!a) return null;
@@ -2344,8 +2347,8 @@ function cycDayOf(t){
 const GR = D.gripRot || null;
 function gripOf(e){
   if(!GR||!e||!e.grip) return null;
-  const c=cycDayOf(ymd(new Date())); if(!c) return null;
-  const k=c.round-GR.start; if(k<0) return null;
+  const c=cycDayOf(ymd(new Date())), rr=VIEW_R!=null?VIEW_R:(c?c.round:null); if(rr==null) return null;
+  const k=rr-GR.start; if(k<0) return null;
   const g=e.grip.g[k%e.grip.p];
   /* 원암 ↔ 양손(H열) — 2사이클 교대. 오버 그립 차례는 늘 양손. H열이 없으면 그립 칸 글자의 (원암)/(양손) */
   let arm=null;
@@ -2857,8 +2860,8 @@ const restLabel=e=>{const L=e.rl;
   return (L&&L.length>1)?mmss(L[0])+" → "+mmss(L[L.length-1]):mmss(e.rt);};
 let TM=null, tmInt=null, tmAC=null, tmWL=null, tmLeft=-1;
 
-function tmSteps(d,week,from){
-  const S=e=>effSets(e,week);
+function tmSteps(d,week,from,Sf){
+  const S=Sf||(e=>effSets(e,week));
   const live=allEx(d).filter(e=>e.s!==0&&S(e)>0&&e.wk>0);
   /* 슈퍼세트 — 같은 태그가 붙은 이웃 종목끼리 한 묶음이 되어 세트를 번갈아
      돈다 (A1 → A2 → 휴식 → A1 → A2 → …). 휴식(초)의 뜻은 그대로 "이 종목
@@ -3428,13 +3431,75 @@ function bindEdits(){
 let mode="back", week=clampW(D.config.week), tab=D.backOrder[0];
 const tabsFor = m => (m==="home"
   ? D.homeOrder.filter(d=>!(D.home[d]&&D.home[d].rest)).map(d=>[d,d]).concat([["cal","달력"],["plan","주간"],["prog","증량"],["check","검산"]])
-  : D.backOrder.filter(d=>!(D.back[d]&&D.back[d].rest)).map(d=>[d,d+"일"]).concat(D.prep?[["prep","배송"]]:[],[["bcal","달력"],["bplan","사이클"],["prog","증량"],["check","검산"]]));
+  : D.backOrder.filter(d=>!(D.back[d]&&D.back[d].rest)).map(d=>[d,d+"일"]).concat([["time","시간"]],D.prep?[["prep","배송"]]:[],[["bcal","달력"],["bplan","사이클"],["prog","증량"],["check","검산"]]));
 
+function reAlt(){
+  if(applyAlt()) altEach((e,d)=>{ e.wk0=e.wk; const o=OVT["back|"+d+"|"+e.name]; if(o&&o.base===e.wk0) e.wk=o.wk; });
+  applyOrd();
+}
+/* ── 시간표 (2026-11-05 사용자 요청) ── 폰에서 고친 수행 초 · 그립 회전 원암 · 사이클 교대 · 디로드 세트까지
+   얹은 채로 세션 타이머와 같은 계산(tmSteps — 준비 5초 + 세트 · 휴식, 마지막 휴식 뺌)을 일차마다 돌린다.
+   다른 사이클은 VIEW_R로 잠깐 그 사이클을 얹어 계산하고 바로 오늘로 되돌린다 */
+const TTK="wk-tt";
+let TT={wu:30,sh:20,sw:0}, TT_R=null;
+try{ Object.assign(TT,JSON.parse(localStorage.getItem(TTK)||"{}")); }catch(e){}
+function ttCycle(r){
+  const start=CANCHOR?dayAdd(CANCHOR,(r-1)*CLEN):null, bw=start?backWeekOf(start):null, dl=!!(bw&&bw.deload);
+  VIEW_R=r; reAlt();
+  const S=e=>dl?dlSets(e):e.s;
+  const days=D.backOrder.map((d,i)=>{ const day=D.back[d], date=start?dayAdd(start,i):null;
+    if(!day||day.rest) return {d,date,rest:true,t:(day&&day.t)||"휴식"};
+    const st=tmSteps(day,week,null,S), per=new Map();
+    st.forEach(x=>{ const k=x.e; if(!per.has(k)) per.set(k,{name:exName(k),n:k.n,sets:S(k),secs:0,arm:(gripOf(k)||{}).arm||""}); per.get(k).secs+=x.t; });
+    const ex=[...per.values()], secs=st.reduce((a,x)=>a+x.t,0)+Math.max(0,ex.length-1)*TT.sw;
+    return {d,date,t:day.t,sets:allEx(day).reduce((a,e)=>a+(e.s>0?S(e):0),0),secs,ex}; });
+  VIEW_R=null; reAlt();
+  return {r,start,dl,days};
+}
+const hm = m => { m=Math.round(m); return m>=60?Math.floor(m/60)+"시간 "+(m%60?m%60+"분":""):m+"분"; };
+function timeHTML(){
+  const t0=ymd(new Date()), c=cycDayOf(t0), cur=c?c.round:1;
+  const r=Math.max(1,TT_R||cur), C=ttCycle(r), md=t=>t?`${+t.slice(5,7)}/${+t.slice(8)}(${DOWK(t)})`:"";
+  const fix=(TT.wu|0)+(TT.sh|0);
+  let sumM=0, sumS=0, sumX=0;
+  const rows=C.days.map(x=>{
+    if(x.rest) return `<tr class="rest"><td>${x.d}</td><td class="wrap">${md(x.date)} · 휴식</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr>`;
+    const m=x.secs/60, xl=CPLAN[x.d]?+CPLAN[x.d].m||0:0, dm=Math.round(m)-xl, today=r===cur&&c&&c.day===x.d;
+    sumM+=m; sumS+=x.sets; sumX+=xl;
+    return `<tr style="${today?'background:var(--raised)':''}"><td>${x.d}${today?' <span class="judge j-lo">오늘</span>':''}</td>
+      <td class="wrap"><details><summary style="font-weight:700;color:var(--ink)">${md(x.date)} · ${esc(x.t)}</summary>
+      <div style="font-size:12.5px;line-height:1.7;margin-top:4px">${x.ex.map(e=>`${e.n}. ${esc(e.name)}${e.arm==="원암"?' <b style="color:var(--bp)">원암</b>':''} · ${e.sets}세트 · <b>${Math.round(e.secs/60*10)/10}분</b>`).join("<br>")}
+      ${TT.sw?`<br><span style="color:var(--mute)">종목 사이 전환 ${TT.sw}초 × ${Math.max(0,x.ex.length-1)}</span>`:""}</div></details></td>
+      <td class="num">${x.sets}</td><td class="num"><b>${Math.round(m)}</b>${xl&&Math.abs(dm)>1?` <i style="font-style:normal;font-size:11.5px;color:${dm>0?'var(--dl)':'var(--sq)'}">${dm>0?"+":""}${dm}</i>`:""}</td>
+      <td class="num" style="font-weight:800;color:var(--ink)">${Math.round(m)+fix}</td></tr>`; });
+  const td=r===cur&&c?C.days.find(x=>x.d===c.day&&!x.rest):null;
+  let endLine="";
+  if(td){ const now=new Date(), end=new Date(now.getTime()+(td.secs+fix*60)*1000);
+    endLine=`<div class="rampbar"><b>오늘 ${td.d}일차 · 총 ${hm(td.secs/60+fix)}</b><span>지금 시작하면 ${end.getHours()}:${String(end.getMinutes()).padStart(2,"0")}에 끝 (본운동 ${Math.round(td.secs/60)}분 + 스트레칭 · 웜업 ${TT.wu|0}분 + 샤워 ${TT.sh|0}분)</span></div>`; }
+  const inp=(k,l,u)=>`<label style="display:inline-flex;align-items:center;gap:4px;margin:0 10px 6px 0;font-size:13px">${l}<input data-tt="${k}" type="number" inputmode="numeric" min="0" value="${TT[k]|0}" style="width:56px;padding:4px 6px;font:inherit;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)">${u}</label>`;
+  return `<h2 class="daytitle">시간표</h2>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0 10px">
+    <button class="tm-go" data-ttr="${r-1}" ${r<=1?"disabled":""} style="min-width:44px">◀</button>
+    <div style="text-align:center"><b style="font-size:18px">${r}사이클${C.dl?' · 디로드':''}</b><br><span style="font-size:12.5px;color:var(--mute)">${md(C.start)} ~ ${md(C.start?dayAdd(C.start,CLEN-1):null)}${r===cur?" · 이번 사이클":r===cur+1?" · 다음 사이클":""}</span></div>
+    <button class="tm-go" data-ttr="${r+1}" style="min-width:44px">▶</button></div>
+  ${r!==cur?`<p style="text-align:center;margin:0 0 10px"><button class="tm-go" data-ttr="${cur}">이번 사이클로</button></p>`:""}
+  ${endLine}
+  <table class="tbl"><thead><tr><th>일차</th><th style="text-align:left">날짜 · 구성 (눌러서 종목별)</th><th>세트</th><th>본운동</th><th>총</th></tr></thead><tbody>
+  ${rows.join("")}
+  <tr><td style="font-weight:800">합계</td><td></td><td class="num" style="font-weight:800">${sumS}</td><td class="num" style="font-weight:800">${Math.round(sumM)}</td><td class="num" style="font-weight:800">${Math.round(sumM)+fix*C.days.filter(x=>!x.rest).length}</td></tr>
+  </tbody></table>
+  <div style="margin:12px 0 4px">${inp("wu","스트레칭 · 웜업","분")}${inp("sh","샤워","분")}${inp("sw","종목 사이 전환","초")}</div>
+  <p class="footnote">본운동 = 세션 타이머와 같은 계산(폰에서 고친 수행 초 · 그립 회전 원암 120초 · 케이블 로우 양손 40초 · 8일차 교대 종목 · 디로드 절반 세트 · 준비 5초 · 마지막 휴식 뺌). 작은 숫자는 엑셀 사이클_계획 분과의 차이(1분 이하는 마지막 휴식 · 준비 5초 차이라 생략). 총 = 본운동 + 스트레칭 · 웜업 + 샤워(+ 전환). 메인 리프트 램프 · 예열 1세트 · 기구 대기는 안 들어간다 — 램프는 스트레칭 · 웜업 분에 넣어 셈.</p>`;
+}
+function ttBind(){
+  document.querySelectorAll("[data-ttr]").forEach(b=>b.onclick=()=>{ TT_R=Math.max(1,+b.dataset.ttr); render(); });
+  document.querySelectorAll("[data-tt]").forEach(i=>i.onchange=()=>{ TT[i.dataset.tt]=Math.max(0,parseInt(i.value,10)||0);
+    try{ localStorage.setItem(TTK,JSON.stringify(TT)); }catch(e){} render(); });
+}
 function render(){
   /* 켜 둔 채 사이클이 넘어갔거나 일차 기준을 되돌렸으면 교대 종목을 다시 얹는다 —
      수행 초 덮어쓰기는 불러올 때와 같은 규칙으로 새 이름 쪽에 다시 붙인다 */
-  if(applyAlt()) altEach((e,d)=>{ e.wk0=e.wk; const o=OVT["back|"+d+"|"+e.name]; if(o&&o.base===e.wk0) e.wk=o.wk; });
-  applyOrd();
+  reAlt();
   const nav=document.getElementById("nav");
   nav.innerHTML=tabsFor(mode).map(([k,l])=>`<button data-k="${k}" aria-pressed="${k===tab}">${l}</button>`).join("");
   nav.querySelectorAll("button").forEach(b=>b.onclick=()=>{tab=b.dataset.k;render();window.scrollTo({top:0});});
@@ -3463,10 +3528,12 @@ function render(){
   else if(tab==="bcal") html=backCalHTML();
   else if(tab==="bplan") html=backPlanHTML();
   else if(tab==="prep") html=prepHTML();
+  else if(tab==="time") html=timeHTML();
   else html = set[tab] ? dayHTML(set[tab],week) : planHTML();
   document.getElementById("app").innerHTML = html + ovHTML() +
     `<p class="footnote">원본: ${esc(D.source)} · 중량은 시트와 동일한 계산식(1kg 격자 · 못 끼우는 값은 +1kg, 웜업 40/60/75/90%)으로 산출됩니다. 중량 숫자를 탭하면 이 폰에서만 고칠 수 있습니다.</p>`;
   bindEdits();
+  if(tab==="time") ttBind();
   try{ const t=ymd(new Date()), c=mode==="back"?cycDayOf(t):{day:DOWK(t)};
     localStorage.setItem("wk-prog", JSON.stringify(
       {mode,week,tab,on:t,cd:c?c.day:null})); }catch(e){}

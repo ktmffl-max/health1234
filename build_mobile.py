@@ -119,7 +119,7 @@ LIFT_META = {                      # 시작중량_설정 행 / 증량기록 행
     # (봉 무게를 모른다 · 원판만 세면 '5로 나눈 나머지 4' 규칙이 봉과 상관없이 맞는다)
 }
 _ACC = [  # 키, 앱 이름, 요일, 종목표 이름 — 시작중량_설정 11행 · 증량기록 9행부터 이 순서
-    ("row",   "해머 로우",          "일", "해머 스트랭스 로우(오버그립)"),
+    ("row",   "해머 로우",          "일", "해머 스트랭스 로우"),   # 2026-11-04 '(오버그립)' 뗌
     ("incline", "인클라인 머신",     "월", "인클라인 벤치프레스 머신"),
     ("lp",    "레그 프레스",        "토", "레그 프레스"),
     ("lph",   "레그 프레스 발 높게", "수", "레그 프레스 (발 높게)"),
@@ -183,6 +183,8 @@ MICRO = {
     # 2026-11-02 파동(어깨 고립) — 무거운 8~12 행 바로 아래 가벼운 15~20 행. 단계는 무거운 쪽과 같다
     "레터럴 레이즈 (가볍게)": "pin", "리버스 펙덱 (가볍게)": "pin",
     "원암 케이블 레터럴 레이즈 (가볍게)": "pin", "시티드 레터럴 레이즈 (가볍게)": "wrist",
+    # 2026-11-04 등 그립 회전 시작 — 이름에서 그립 · 원암 표기를 뗀 새 이름(3 · 5 · 8일차 랫풀다운은 한 이름)
+    "랫풀다운": "pin", "케이블 로우": "pin", "인클라인 덤벨 로우": "wrist", "하이로우 머신": "kg",
 }
 
 # 2026-10-24 사용자 결정 — 예열 1세트(본세트 50% × 6~8 · 세트 수에 안 셈). 그날 처음 쓰는 관절 ·
@@ -198,10 +200,10 @@ WARMUP = {
     ("1", "레그 컬"): None,                                       # 패드로 늘어난 자세 · 첫 무릎 굽힘
     ("1", "넥 익스텐션 (플레이트)"): "무게 없이 머리만 앞뒤로 × 15씩 — 그날 첫 목 · 가동범위부터",
     ("2", "딥스"): "어시스트 많이 걸고 × 8 · 맨 아래 깊이를 천천히 — 어깨 늘어나는 구간 확인",
-    ("3", "해머 스트랭스 로우(오버그립)"): None,
+    ("3", "해머 스트랭스 로우"): None,
     ("4", "힙 쓰러스트"): None, ("4", "라잉 트라이셉스 익스텐션"): None,
     ("4", "페이스풀 (로프)"): "아주 가볍게 × 15 — 하체 뒤 그날 첫 어깨",
-    ("5", "랫풀다운 (와이드 오버그립)"): "스캡 풀다운(팔 편 채 날개뼈만 내리기) × 10 → 50% × 8 — 그날 첫 당기기 · 맨 위에서 오른쪽 앞 어깨 확인",
+    ("5", "랫풀다운"): "스캡 풀다운(팔 편 채 날개뼈만 내리기) × 10 → 50% × 8 — 그날 첫 당기기 · 맨 위에서 오른쪽 앞 어깨 확인",
     ("5", "인클라인 덤벨 컬"): None,                              # 어깨 뒤 늘어난 자세 · 오른쪽 앞 어깨
     ("7", "루마니안 데드리프트"): None,                           # 햄스트링 근위부 이력
     ("7", "케이블 오버헤드 익스텐션 (로프)"): "로프 오버헤드 40% × 12~15 — 하체 70분 뒤 차가운 팔꿈치 · 푸쉬다운은 따로 안 함",
@@ -882,6 +884,8 @@ def parse_cycle_anchor(wb):
 
 
 GRIP_SHEET = "사이클_그립회전"
+# 2026-11-04 '원암 케이블 로우' → '케이블 로우'로 이름에서 원암을 뗐지만 시트 수행 초(120)는 여전히 원암(좌우) 기준이다
+ONEARM_BASE = {"케이블 로우"}
 
 
 def grip_display_name(name):
@@ -1327,7 +1331,7 @@ def build(xlsx_path, out_path):
                     e["grip"]["a"] = arm
                 if any(cues):
                     e["grip"]["c"] = cues
-                if "원암" in name:          # 시트 수행 초가 원암(좌우) 기준인 종목
+                if "원암" in name or name in ONEARM_BASE:   # 시트 수행 초가 원암(좌우) 기준인 종목
                     e["grip"]["b"] = 1
                 e["gname"] = grip_display_name(name)
     # 사이클 종목 교대(2026-11-02) — 교대표 종목을 일차 시트 종목 자리에 붙인다. 앱이 오늘 사이클로 한쪽을 얹는다
@@ -1823,6 +1827,16 @@ function altIdle(key){
 const OVK = "wk-ov";
 let OV = {lifts:{}, ex:{}};
 try{ const o=JSON.parse(localStorage.getItem(OVK)||"null"); if(o&&o.lifts&&o.ex) OV=o; }catch(e){}
+/* 2026-11-04 등 종목 이름에서 그립 · 원암 표기를 뗐다(그립 회전 시작). 폰에 적어 둔 무게 · 수행 초는
+   '모드|일차|이름' 키라 이름이 바뀌면 아래 정리에서 버려진다 — 그 전에 새 이름 키로 옮긴다. 새 키에 이미 값이 있으면 그대로 둔다 */
+const RENAMED={"back|3|랫풀다운 (뉴트럴 그립)":"back|3|랫풀다운","back|3|해머 스트랭스 로우(오버그립)":"back|3|해머 스트랭스 로우",
+  "back|3|인클라인 덤벨 로우(오버그립)":"back|3|인클라인 덤벨 로우","back|3|원암 케이블 로우":"back|3|케이블 로우",
+  "back|5|랫풀다운 (와이드 오버그립)":"back|5|랫풀다운","back|8|랫풀다운(언더그립)":"back|8|랫풀다운",
+  "back|8|하이로우 머신(언더그립)":"back|8|하이로우 머신"};
+function renameKeys(o){ let ch=false;
+  for(const k in RENAMED){ if(o&&o[k]){ if(!o[RENAMED[k]]) o[RENAMED[k]]=o[k]; delete o[k]; ch=true; } }
+  return ch; }
+if(renameKeys(OV.ex)) try{ localStorage.setItem(OVK, JSON.stringify(OV)); }catch(e){}
 function exByKey(key){
   const p=key.split("|"), day=(p[0]==="home"?D.home:D.back)[p[1]];
   if(!day||day.rest) return null;
@@ -1840,6 +1854,7 @@ if(ovStale) saveOV();
 const OVTK="wk-ovt";
 let OVT={};
 try{ const o=JSON.parse(localStorage.getItem(OVTK)||"null"); if(o&&typeof o==="object") OVT=o; }catch(e){}
+if(renameKeys(OVT)) try{ localStorage.setItem(OVTK, JSON.stringify(OVT)); }catch(e){}
 const saveOVT = () => { try{ localStorage.setItem(OVTK, JSON.stringify(OVT)); }catch(e){} };
 (function(){ let ch=false;
   ["home","back"].forEach(m=>{ const days=D[m]||{};

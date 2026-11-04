@@ -926,7 +926,16 @@ def parse_grip_rotation(wb):
             sys.exit(f"[중단] {GRIP_SHEET} H{r} '{h}' — '양손 먼저' · '원암 먼저' · 빈칸 중 하나여야 합니다.")
         arm = {"양손 먼저": 0, "원암 먼저": 1}.get(h)
         rows.append([str(int(d)), s(ws.cell(r, 2).value), per, grips, s(ws.cell(r, 7).value), arm, cues])
-    return {"start": start, "rows": rows}
+    # 회전별 순서 바꾸기(2026-11-04) — '회전별 순서 바꾸기' 머리글 아래 [일차, 회전, 종목 A, 종목 B]. 그 회전에만 두 자리를 맞바꾼다
+    order = []
+    oh = next((r for r in range(1, ws.max_row + 1) if s(ws.cell(r, 1).value) == "회전별 순서 바꾸기"), None)
+    if oh is not None:
+        for r in range(oh + 2, ws.max_row + 1):
+            d = ws.cell(r, 1).value
+            if not isinstance(d, (int, float)):
+                break
+            order.append([str(int(d)), int(num(ws.cell(r, 2).value)), s(ws.cell(r, 3).value), s(ws.cell(r, 4).value)])
+    return {"start": start, "rows": rows, "order": order}
 
 
 ALT_SHEET = "사이클_종목교대"
@@ -1321,6 +1330,13 @@ def build(xlsx_path, out_path):
     gr = parse_grip_rotation(wb)
     data["gripRot"] = gr
     if gr:
+        for d, rot, a, b in gr["order"]:
+            flat = (data["back"].get(d) or {}).get("ex") or []
+            for nm in (a, b):
+                if sum(1 for e in flat if e.get("name") == nm) != 1:
+                    sys.exit(f"[중단] {GRIP_SHEET} 회전별 순서 바꾸기 '{d}일차 {nm}' — 그 일차 시트(묶음 밖)에 같은 이름이 하나여야 합니다.")
+            if not 1 <= rot <= 3:
+                sys.exit(f"[중단] {GRIP_SHEET} 회전별 순서 바꾸기 '{d}일차' — 회전은 1~3이어야 합니다.")
         for d, name, per, grips, memo, arm, cues in gr["rows"]:
             hit = [e for e in all_ex(data["back"].get(d, {})) if e.get("name") == name]
             if not hit:
@@ -1812,6 +1828,21 @@ function applyAlt(){
   return true;
 }
 applyAlt();
+/* ── 회전별 순서 바꾸기 (2026-11-04 · 사이클_그립회전 아래 표) ── 그 회전에만 두 종목 자리와 번호를 맞바꾼다.
+   일차 시트 순서(ex0)를 원본으로 쥐고 매번 거기서 다시 만든다 — 사이클이 넘어가면 저절로 원래대로 */
+function applyOrd(){
+  const G=D.gripRot, O=(G&&G.order)||[]; if(!O.length) return;
+  const r=altRound(), rot=(r!=null&&r>=G.start)?((r-G.start)%3)+1:null;
+  const days={}; O.forEach(o=>{ (days[o[0]]=days[o[0]]||[]).push(o); });
+  for(const d in days){ const day=D.back[d]; if(!day||day.rest) continue;
+    if(!day.ex0){ day.ex0=day.ex.slice(); day.ex0.forEach(e=>{ e.n0=e.n; }); }
+    const ex=day.ex0.slice(); ex.forEach(e=>{ e.n=e.n0; });
+    days[d].forEach(o=>{ if(o[1]!==rot) return;
+      const i=ex.findIndex(e=>e.name===o[2]), j=ex.findIndex(e=>e.name===o[3]); if(i<0||j<0) return;
+      const t=ex[i]; ex[i]=ex[j]; ex[j]=t; const n=ex[i].n; ex[i].n=ex[j].n; ex[j].n=n; });
+    day.ex=ex; }
+}
+applyOrd();
 /* 오늘 안 얹힌 쪽 이름의 덮어쓰기(수행 초 등)는 지우지 않는다 — 다음 사이클에 다시 쓴다 */
 function altIdle(key){
   const p=key.split("|"); if(p[0]!=="back"||!ALT_ON) return false;
@@ -1927,7 +1958,8 @@ function startFor(k,w,n){
 const clampW = w => Math.min(WLAST, Math.max(WBASE, w||WBASE));
 /* w사이클 직전까지 같은 종목이 몇 사이클 연속 미달인지. 3이면 엑셀 규칙 "10% 디로드 후 재상승" —
    자동으로 내리지는 않는다. 중량을 탭해서 직접 고치면 웜업·원판이 따라온다 */
-function missRun(k,w){ let n=0; for(let c=w-1;c>=1&&missed(k,c);c--) n++; return n; }
+/* '원암'(2026-11-04) = 해머 로우 회전 2 원암 날 — 무게는 유지하지만 연속 미달 셈에서는 건너뛴다(엑셀 증량기록 A56) */
+function missRun(k,w){ let n=0; for(let c=w-1;c>=1;c--){ if(logVal(c,k)==="원암") continue; if(!missed(k,c)) break; n++; } return n; }
 function deloadNote(k,w){
   const cut = () => fmt(Math.max(20,R(workWeight(k,w)*0.9)));
   if(missRun(k,w)>=3)   return `앞 3주 연속 미달 — 규칙은 이 주 10% 디로드(${cut()}kg)`;
@@ -3418,6 +3450,7 @@ function render(){
   /* 켜 둔 채 사이클이 넘어갔거나 일차 기준을 되돌렸으면 교대 종목을 다시 얹는다 —
      수행 초 덮어쓰기는 불러올 때와 같은 규칙으로 새 이름 쪽에 다시 붙인다 */
   if(applyAlt()) altEach((e,d)=>{ e.wk0=e.wk; const o=OVT["back|"+d+"|"+e.name]; if(o&&o.base===e.wk0) e.wk=o.wk; });
+  applyOrd();
   const nav=document.getElementById("nav");
   nav.innerHTML=tabsFor(mode).map(([k,l])=>`<button data-k="${k}" aria-pressed="${k===tab}">${l}</button>`).join("");
   nav.querySelectorAll("button").forEach(b=>b.onclick=()=>{tab=b.dataset.k;render();window.scrollTo({top:0});});

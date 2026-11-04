@@ -3456,26 +3456,28 @@ function ttCycle(r){
   VIEW_R=null; reAlt();
   return {r,start,dl,days};
 }
-const hm = m => { m=Math.round(m); return m>=60?Math.floor(m/60)+"시간 "+(m%60?m%60+"분":""):m+"분"; };
+const hm = m => { m=Math.round(m); const h=Math.floor(m/60), x=m%60; return h?h+"시간"+(x?" "+x+"분":""):x+"분"; };
 function timeHTML(){
   const t0=ymd(new Date()), c=cycDayOf(t0), cur=c?c.round:1;
   const r=Math.max(1,TT_R||cur), C=ttCycle(r), md=t=>t?`${+t.slice(5,7)}/${+t.slice(8)}(${DOWK(t)})`:"";
-  const fix=(TT.wu|0)+(TT.sh|0);
-  let sumM=0, sumS=0, sumX=0;
+  const fix=(TT.wu|0)+(TT.sh|0), live=C.days.filter(x=>!x.rest);
+  const wm = x => Math.round(x.secs/60);
+  let sumW=0;
   const rows=C.days.map(x=>{
     if(x.rest) return `<tr class="rest"><td>${x.d}</td><td class="wrap">${md(x.date)} · 휴식</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr>`;
-    const m=x.secs/60, xl=CPLAN[x.d]?+CPLAN[x.d].m||0:0, dm=Math.round(m)-xl, today=r===cur&&c&&c.day===x.d;
-    sumM+=m; sumS+=x.sets; sumX+=xl;
-    return `<tr style="${today?'background:var(--raised)':''}"><td>${x.d}${today?' <span class="judge j-lo">오늘</span>':''}</td>
-      <td class="wrap"><details><summary style="font-weight:700;color:var(--ink)">${md(x.date)} · ${esc(x.t)}</summary>
+    const w=wm(x), xl=CPLAN[x.d]?+CPLAN[x.d].m||0:0, dm=w-xl, today=r===cur&&c&&c.day===x.d;
+    sumW+=w;
+    return `<tr style="${today?'background:var(--raised)':''}"><td>${x.d}${today?'<br><span class="judge j-lo">오늘</span>':''}</td>
+      <td class="wrap"><details><summary style="font-weight:700;color:var(--ink)">${md(x.date)} · ${esc(x.t)} <span style="font-weight:500;color:var(--mute)">· ${x.sets}세트</span></summary>
       <div style="font-size:12.5px;line-height:1.7;margin-top:4px">${x.ex.map(e=>`${e.n}. ${esc(e.name)}${e.arm==="원암"?' <b style="color:var(--bp)">원암</b>':''} · ${e.sets}세트 · <b>${Math.round(e.secs/60*10)/10}분</b>`).join("<br>")}
-      ${TT.sw?`<br><span style="color:var(--mute)">종목 사이 전환 ${TT.sw}초 × ${Math.max(0,x.ex.length-1)}</span>`:""}</div></details></td>
-      <td class="num">${x.sets}</td><td class="num"><b>${Math.round(m)}</b>${xl&&Math.abs(dm)>1?` <i style="font-style:normal;font-size:11.5px;color:${dm>0?'var(--dl)':'var(--sq)'}">${dm>0?"+":""}${dm}</i>`:""}</td>
-      <td class="num" style="font-weight:800;color:var(--ink)">${Math.round(m)+fix}</td></tr>`; });
+      ${TT.sw?`<br><span style="color:var(--mute)">종목 사이 전환 ${TT.sw}초 × ${Math.max(0,x.ex.length-1)}</span>`:""}
+      ${xl&&Math.abs(dm)>1?`<br><span style="color:var(--mute)">엑셀 계획 운동 ${xl}분보다 ${dm>0?dm+"분 길다":(-dm)+"분 짧다"}</span>`:""}</div></details></td>
+      <td class="num"><b>${hm(w)}</b></td><td class="num">${hm(fix)}</td>
+      <td class="num" style="font-weight:800;color:var(--ink)">${hm(w+fix)}</td></tr>`; });
   const td=r===cur&&c?C.days.find(x=>x.d===c.day&&!x.rest):null;
   let endLine="";
-  if(td){ const now=new Date(), end=new Date(now.getTime()+(td.secs+fix*60)*1000);
-    endLine=`<div class="rampbar"><b>오늘 ${td.d}일차 · 총 ${hm(td.secs/60+fix)}</b><span>지금 시작하면 ${end.getHours()}:${String(end.getMinutes()).padStart(2,"0")}에 끝 (본운동 ${Math.round(td.secs/60)}분 + 스트레칭 · 웜업 ${TT.wu|0}분 + 샤워 ${TT.sh|0}분)</span></div>`; }
+  if(td){ const w=wm(td), now=new Date(), end=new Date(now.getTime()+(w+fix)*60000);
+    endLine=`<div class="rampbar"><b>오늘 ${td.d}일차 · 총 ${hm(w+fix)}</b><span>운동 ${hm(w)} · 웜업 + 샤워 ${hm(fix)} (스트레칭 · 웜업 ${TT.wu|0}분 + 샤워 ${TT.sh|0}분)<br>지금 시작하면 ${end.getHours()}시 ${String(end.getMinutes()).padStart(2,"0")}분에 끝</span></div>`; }
   const inp=(k,l,u)=>`<label style="display:inline-flex;align-items:center;gap:4px;margin:0 10px 6px 0;font-size:13px">${l}<input data-tt="${k}" type="number" inputmode="numeric" min="0" value="${TT[k]|0}" style="width:56px;padding:4px 6px;font:inherit;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)">${u}</label>`;
   return `<h2 class="daytitle">시간표</h2>
   <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0 10px">
@@ -3484,14 +3486,13 @@ function timeHTML(){
     <button class="tm-go" data-ttr="${r+1}" style="min-width:44px">▶</button></div>
   ${r!==cur?`<p style="text-align:center;margin:0 0 10px"><button class="tm-go" data-ttr="${cur}">이번 사이클로</button></p>`:""}
   ${endLine}
-  <table class="tbl"><thead><tr><th>일차</th><th style="text-align:left">날짜 · 구성 (눌러서 종목별)</th><th>세트</th><th>본운동</th><th>총</th></tr></thead><tbody>
+  <table class="tbl"><thead><tr><th>일차</th><th style="text-align:left">날짜 · 구성 (눌러서 종목별)</th><th>운동</th><th>웜업<br>+ 샤워</th><th>총</th></tr></thead><tbody>
   ${rows.join("")}
-  <tr><td style="font-weight:800">합계</td><td></td><td class="num" style="font-weight:800">${sumS}</td><td class="num" style="font-weight:800">${Math.round(sumM)}</td><td class="num" style="font-weight:800">${Math.round(sumM)+fix*C.days.filter(x=>!x.rest).length}</td></tr>
+  <tr><td style="font-weight:800">합계</td><td class="wrap" style="color:var(--mute)">${live.length}일 · ${live.reduce((a,x)=>a+x.sets,0)}세트</td><td class="num" style="font-weight:800">${hm(sumW)}</td><td class="num" style="font-weight:800">${hm(fix*live.length)}</td><td class="num" style="font-weight:800">${hm(sumW+fix*live.length)}</td></tr>
   </tbody></table>
   <div style="margin:12px 0 4px">${inp("wu","스트레칭 · 웜업","분")}${inp("sh","샤워","분")}${inp("sw","종목 사이 전환","초")}</div>
-  <p class="footnote">본운동 = 세션 타이머와 같은 계산(폰에서 고친 수행 초 · 그립 회전 원암 120초 · 케이블 로우 양손 40초 · 8일차 교대 종목 · 디로드 절반 세트 · 준비 5초 · 마지막 휴식 뺌). 작은 숫자는 엑셀 사이클_계획 분과의 차이(1분 이하는 마지막 휴식 · 준비 5초 차이라 생략). 총 = 본운동 + 스트레칭 · 웜업 + 샤워(+ 전환). 메인 리프트 램프 · 예열 1세트 · 기구 대기는 안 들어간다 — 램프는 스트레칭 · 웜업 분에 넣어 셈.</p>`;
-}
-function ttBind(){
+  <p class="footnote">운동 = 세션 타이머와 같은 계산(폰에서 고친 수행 초 · 그립 회전 원암 120초 · 케이블 로우 양손 40초 · 8일차 교대 종목 · 디로드 절반 세트 · 준비 5초 · 마지막 휴식 뺌 · 전환 초). 웜업 + 샤워 = 위 칸 두 개(메인 리프트 램프 · 예열 1세트 포함으로 셈). 총 = 운동 + 웜업 + 샤워. 기구 대기는 안 들어간다.</p>`;
+}function ttBind(){
   document.querySelectorAll("[data-ttr]").forEach(b=>b.onclick=()=>{ TT_R=Math.max(1,+b.dataset.ttr); render(); });
   document.querySelectorAll("[data-tt]").forEach(i=>i.onchange=()=>{ TT[i.dataset.tt]=Math.max(0,parseInt(i.value,10)||0);
     try{ localStorage.setItem(TTK,JSON.stringify(TT)); }catch(e){} render(); });

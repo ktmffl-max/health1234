@@ -100,6 +100,7 @@ def home_days(wb):
 LIFT_KEYS = {"스쿼트": "squat", "데드리프트": "dead",
              "벤치프레스": "bench", "밀리터리 프레스": "press",
              "시티드 바벨 밀리터리 프레스": "press",
+             "오버헤드 프레스 (스탠딩 바벨)": "press",   # 2026-11-05 시티드 → 스탠딩
              "스미스 오버헤드 프레스": "press"}
 
 # 볼륨 램프를 중량보다 몇 주 앞세울지.
@@ -1855,7 +1856,8 @@ try{ const o=JSON.parse(localStorage.getItem(OVK)||"null"); if(o&&o.lifts&&o.ex)
 const RENAMED={"back|3|랫풀다운 (뉴트럴 그립)":"back|3|랫풀다운","back|3|해머 스트랭스 로우(오버그립)":"back|3|해머 스트랭스 로우",
   "back|3|인클라인 덤벨 로우(오버그립)":"back|3|인클라인 덤벨 로우","back|3|원암 케이블 로우":"back|3|케이블 로우",
   "back|5|랫풀다운 (와이드 오버그립)":"back|5|랫풀다운","back|8|랫풀다운(언더그립)":"back|8|랫풀다운",
-  "back|8|하이로우 머신(언더그립)":"back|8|하이로우 머신"};
+  "back|8|하이로우 머신(언더그립)":"back|8|하이로우 머신",
+  "back|5|시티드 바벨 밀리터리 프레스":"back|5|오버헤드 프레스 (스탠딩 바벨)"};
 function renameKeys(o){ let ch=false;
   for(const k in RENAMED){ if(o&&o[k]){ if(!o[RENAMED[k]]) o[RENAMED[k]]=o[k]; delete o[k]; ch=true; } }
   return ch; }

@@ -1583,7 +1583,7 @@ function koMic(s){
 }
 /* 다음 종목 안내. 값은 그 순간 화면에 떠 있는 것을 그대로 읽으므로
    주차 증량도 앱에서 고친 중량도 따로 손댈 데가 없다. */
-function tmNextKeys(e,sets){
+function tmNextKeys(e,sets,set){
   const gp = mode==="back" ? gripOf(e) : null;
   const k=["다음 종목",",",gp?exName(e):e.name];
   if(gp){ k.push(",","그립:"+gp.g); if(gp.ax) k.push("팔:"+gp.arm); }
@@ -1594,7 +1594,7 @@ function tmNextKeys(e,sets){
   k.push.apply(k,koCell(String(e.r||""),"회"));
   k.push(",");
   k.push.apply(k,koCell(tmW(e).replace(/kg$/,""),"킬로"));
-  if(e.wu) k.push(",","예열 한 세트 먼저");
+  if(e.wu&&set===1) k.push(",","예열 한 세트 먼저");   /* 2026-11-06 슈퍼세트는 라운드마다 종목이 바뀌어 매번 읊었다 — 1세트 앞에서만 */
   return k.filter(x=>x===","||tmHas(x));
 }
 const tmLen = keys => keys.reduce(
@@ -1608,7 +1608,7 @@ function tmNextSay(idx,at,off){
   if(!TM||idx==null||!voiceOn||!vBuf) return [];
   const cur=TM.st[idx], nx=TM.st[idx+1];
   if(!cur||!nx||nx.e===cur.e) return [];
-  const k=tmNextKeys(nx.e,nx.sets);
+  const k=tmNextKeys(nx.e,nx.sets,nx.set);
   /* 카운트다운이 시작되기 1초 전까지는 끝나야 한다. 리드가 길어진 만큼
      이 여유도 같이 늘어난다 — 안 그러면 안내가 딸깍 위에 얹힌다. */
   if(off+tmLen(k)>cur.t-(tmLead(cur,nx)+1)) return [];
@@ -1817,7 +1817,7 @@ function tmPaint(){
   tmSet("tm-meta",tmMeta(s.e));
   document.getElementById("tm-set").textContent="세트 "+s.set+" / "+s.sets+(s.drop?" · 드롭세트":"");
   /* 예열 — 이 종목 1세트 앞 준비 시간이거나 1세트 중이면 큰 띠로. 다음 종목 예고 줄에도 붙인다 */
-  const wuNow = s.e.wu&&s.set===1&&s.p!=="rest", wuNext = nx&&nx.e!==s.e&&nx.e.wu;
+  const wuNow = s.e.wu&&s.set===1&&s.p!=="rest", wuNext = nx&&nx.e!==s.e&&nx.e.wu&&nx.set===1;
   if(wuNow) document.getElementById("tm-set").insertAdjacentHTML("beforeend",
     `<br><span class="tm-wu">예열 1세트 먼저 — ${esc(s.e.wut||"50% × 6~8")}</span>`);
   tmRecSet(tmRec(s.e));

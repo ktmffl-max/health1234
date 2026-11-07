@@ -234,7 +234,10 @@ WU_SESSION = {
           {"pctOf": "핵 스쿼트", "rows": [[0.5, 8, 60], [0.75, 4, 90]]}],
     "5": [_ER, _BB],
     "7": [_SF, _SOL, {"ramp": 1}],
-    "8": [_BB, _LAT(2), {"pctOf": "#2", "rows": [["bar", 5, 45], [0.6, 5, 60], [0.75, 3, 90], [0.9, 1, 120]]}],
+    # 2026-11-07 사용자 — 8일차에도 바벨 램프 앞 머신 체스트 프레스 가볍게 2세트. 8일차엔 그 종목이 없어 2일차 무게 칸을 쓴다(ofDay)
+    "8": [_BB, _LAT(2),
+          {"ss": [{"of": "머신 체스트 프레스", "ofDay": "2", "n": "머신 체스트 프레스 (가볍게)", "mg": "흉근 · 5회 이상 남김", "pct": 0.35, "r": "12~15", "wk": 40, "rt": 30}], "s": 2},
+          {"pctOf": "#2", "rows": [["bar", 5, 45], [0.6, 5, 60], [0.75, 3, 90], [0.9, 1, 120]]}],
 }
 # 세션 안에 있는 램프 — 5일차 프레스 램프는 원암 레터럴 뒤 · 프레스 직전이라 세션 타이머 쪽에 끼운다
 WU_INSESSION = {
@@ -3382,8 +3385,10 @@ function wuItems(d){
         w:r[0]==="bar"?"빈 봉 20":String(Math.max(20,R(base*r[0]))),r:String(r[1]),s:1,wk:r[1]*3+10,rt:r[2]}));
     } else if(x.ss){
       const g="ss"+out.length;
-      x.ss.forEach(y=>{ const e=allEx(d).find(z=>z.name===y.of);
-        const b=e?parseFloat(tmW(e)):NaN, w=b>0?String(Math.max(1,R(b*y.pct))):"가볍게";
+      x.ss.forEach(y=>{ const dd=y.ofDay?D.back[y.ofDay]:d, e=dd&&!dd.rest?allEx(dd).find(z=>z.name===y.of):null;
+        /* 다른 일차 무게 칸이면 그 일차의 폰 덮어쓰기를 본다(tmW는 지금 탭 기준) */
+        const ov=e&&y.ofDay?OV.ex[mode+"|"+y.ofDay+"|"+e.name]:null;
+        const b=e?parseFloat(y.ofDay?(ov?ov.w:e.w):tmW(e)):NaN, w=b>0?String(Math.max(1,R(b*y.pct))):"가볍게";
         out.push({name:y.n,mg:y.mg,w:w,r:y.r,s:x.s,wk:y.wk,rt:y.rt,ssg:g}); });
     } else out.push({name:x.n,mg:x.mg||"웜업",w:x.w,r:x.r,s:x.s,wk:x.wk,rt:x.rt});
   });

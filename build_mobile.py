@@ -207,6 +207,34 @@ WARMUP = {
 }
 
 
+# 2026-11-07 사용자 요청 — 세션 시작 전 웜업 타이머(세션 타이머와 따로 · 그 일차 화면 안 버튼).
+# 엑셀 웜업 칸(종목표 위 '·' 줄)의 순서를 그대로 옮긴 것이다 — 엑셀 웜업 줄을 바꾸면 여기도 같이.
+# 수행 · 휴식 초는 처음 정한 값이라 실제와 다르면 고친다(블랙번 150초는 사용자 '제일 오래 걸림' 기준 추정).
+#   {"n","w","r","s","wk","rt"} = 일반 항목 · {"ramp": 1} = 그날 메인 리프트 램프(앱 카드와 같은 ramp())
+#   {"pctOf": 종목 이름 또는 "#2"(2번 행 — 8일차 교대 종목), "rows": [[비율|"bar", 반복, 휴식초], …]}
+_SF = {"n": "숏풋 (왼발 위주)", "mg": "왼발 아치 · 5초 버티기", "w": "맨발", "r": "10", "s": 1, "wk": 60, "rt": 10}
+_SOL = {"n": "가자미근 스트레칭 (왼쪽 · 무릎 굽혀)", "mg": "종아리 · 45초 버티기", "w": "벽", "r": "", "s": 2, "wk": 45, "rt": 15}
+_ER = {"n": "케이블 외회전", "mg": "회전근개", "w": "매우 가볍게", "r": "15 (좌우)", "s": 2, "wk": 60, "rt": 20}
+_BB = {"n": "블랙번", "mg": "하부 승모 · 회전근개 · 한계 안 감", "w": "1", "r": "", "s": 1, "wk": 150, "rt": 30}
+_LAT = lambda n: {"n": "랫풀다운 (가볍게)", "mg": "광배", "w": "가볍게", "r": "10~12", "s": n, "wk": 35, "rt": 45}
+WU_SESSION = {
+    "1": [_SF, _SOL, {"ramp": 1}],
+    "2": [_ER, _BB, {"ramp": 1}],
+    "3": [_BB, _LAT(3)],
+    "4": [{"n": "글루트 브릿지 (맨몸)", "mg": "둔근", "w": "맨몸", "r": "15", "s": 1, "wk": 45, "rt": 15},
+          {"n": "왼발목 무릎 벽 밀기", "mg": "발목", "w": "맨발", "r": "10~15", "s": 1, "wk": 60, "rt": 15},
+          {"pctOf": "핵 스쿼트", "rows": [[0.5, 8, 60], [0.75, 4, 90]]}],
+    "5": [_ER, _BB],
+    "7": [_SF, _SOL, {"ramp": 1}],
+    "8": [_BB, _LAT(2), {"pctOf": "#2", "rows": [["bar", 5, 45], [0.6, 5, 60], [0.75, 3, 90], [0.9, 1, 120]]}],
+}
+# 세션 안에 있는 램프 — 5일차 프레스 램프는 원암 레터럴 뒤 · 프레스 직전이라 세션 타이머 쪽에 끼운다
+WU_INSESSION = {
+    "5": {"before": "오버헤드 프레스 (스탠딩 바벨)",
+          "items": [{"n": "프레스 램프", "mg": "웜업 램프", "w": "20", "r": "5", "s": 2, "wk": 25, "rt": 60}]},
+}
+
+
 def pick_latest(folder):
     """폴더에서 가장 최근에 수정된 워크북을 고른다. 엑셀 임시파일(~$)은 무시."""
     cands = [p for p in Path(folder).glob("*.xlsx") if not p.name.startswith("~$")]
@@ -1319,6 +1347,7 @@ def build(xlsx_path, out_path):
             data["back"][d] = {"t": "휴식", "sub": "", "rest": True}
     data["back"] = {d: data["back"][d] for d in order}
     data["backOrder"] = order
+    data["wuPlan"], data["wuIn"] = WU_SESSION, WU_INSESSION
     # 등 그립 회전(2026-11-01) — 회전표 종목을 일차 시트 종목에 붙인다. 이름이 안 맞으면 빌드에서 바로 알린다
     gr = parse_grip_rotation(wb)
     data["gripRot"] = gr
@@ -1703,6 +1732,7 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .tm-none{display:inline-block;font-size:11.5px;font-weight:600;color:var(--dim);
   padding:5px 10px;border-radius:999px;border:1px dashed var(--line)}
 .day-go i{font-style:normal;font-weight:600;opacity:.8}
+.day-go.wu-go{background:var(--surface);color:var(--sq);border:1.5px solid var(--sq);margin-bottom:10px}
 .day-go{display:block;width:100%;margin:0 0 15px;padding:14px;border:0;border-radius:13px;
   background:var(--mp);color:#fff;font:inherit;font-size:15px;font-weight:800;cursor:pointer}
 #tm{position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column;
@@ -2201,7 +2231,9 @@ function dayHTML(d,week){
   const go = timed.length
     ? `<button class="day-go" data-tm="">&#9654; 세션 타이머 시작 · ${tSets}세트${
         tSets!==done?` <i>(시간 없는 ${done-tSets}세트 제외)</i>`:""}</button>` : "";
-  return `<h2 class="daytitle">${esc(d.t)}</h2><p class="daysub">${esc(d.sub)}</p>${bar}${go}
+  const wst=wuSteps(d), wsec=wst.reduce((a,x)=>a+x.t,0);
+  const wgo = wst.length ? `<button class="day-go wu-go" data-wtm="1">&#9654; 웜업 타이머 · ${wuItems(d).length}항목 · 약 ${Math.round(wsec/60)}분</button>` : "";
+  return `<h2 class="daytitle">${esc(d.t)}</h2><p class="daysub">${esc(d.sub)}</p>${bar}${wgo}${go}
     ${cards}${notesHTML(d.pre)}${body}
     <div class="total"><span>세트 합계</span><b class="num">${done!==d.total?`${done} <i style="font-style:normal;font-weight:600;color:var(--mute);font-size:13px">/ 설계 ${d.total}</i>`:d.total}</b></div>${holdBox}${notesHTML(d.notes)}`;
 }
@@ -2878,13 +2910,17 @@ function tmSteps(d,week,from,Sf){
   const groups=[];
   live.forEach(e=>{ const g=groups[groups.length-1];
     if(g&&e.ss&&g[0].ss===e.ss) g.push(e); else groups.push([e]); });
-  const st=[];
+  const st=[], IN=mode==="back"&&D.wuIn?D.wuIn[dayKey(d)]:null;
   groups.forEach(g=>{ const n=Math.max.apply(null,g.map(S));
     for(let k=1;k<=n;k++) g.forEach(e=>{
       if(k>S(e)) return;
       /* 드롭이 걸린 종목(엑셀 O열)은 마지막 세트만 그 시간만큼 길게 잡고 표시를
          남긴다 — 세트 시작 때 '드롭세트'라고 읊고 화면에도 적는다 */
       const dp=(k===S(e)&&e.drop>0);
+      if(k===1&&IN&&IN.before===e.name) IN.items.forEach(x=>{
+        const pe={name:x.n,mg:x.mg,w:x.w,r:x.r,wk:x.wk,of:e};
+        for(let j=1;j<=x.s;j++){ st.push({p:"work",t:x.wk,e:pe,set:j,sets:x.s,ramp:true});
+                                 st.push({p:"rest",t:x.rt,e:pe,set:j,sets:x.s,ramp:true}); } });
       if(k===1&&e.wu){
         st.push({p:"work",t:Math.min(WU_WK_MAX,armWk(e,e.wk)),e:e,set:1,sets:S(e),wu:true});
         st.push({p:"rest",t:WU_REST,e:e,set:1,sets:S(e),wu:true});
@@ -2903,7 +2939,7 @@ function tmSteps(d,week,from,Sf){
   }
   const out=st.slice(cut);
   if(out.length) out.unshift({p:"prep",t:PREP,e:out[0].e,set:out[0].set,sets:out[0].sets});
-  out.forEach(x=>{ x.li=live.indexOf(x.e)+1; x.ln=live.length; });
+  out.forEach(x=>{ x.li=live.indexOf(x.e.of||x.e)+1; x.ln=live.length; });
   return out;
 }
 function tmW(e){
@@ -3241,13 +3277,14 @@ function tmPaint(){
   if(!TM) return;
   const s=TM.st[TM.i], nx=TM.st[TM.i+1], ph=PH[s.p];
   document.getElementById("tm-dial").style.setProperty("--phase",ph[1]);
-  document.getElementById("tm-phase").textContent=(s.wu&&s.p==="work"?"예열":ph[0])+(s.drop?" · 드롭":"");
+  document.getElementById("tm-phase").textContent=(s.p==="work"?(s.wu?"예열":s.ramp?"램프":s.wt?"웜업":ph[0]):ph[0])+(s.drop?" · 드롭":"");
   document.getElementById("tm-ctx").textContent=TM.title+" · "+s.li+"/"+s.ln+" 종목";
   /* 그립 회전 종목은 이름 아래에 이번 사이클 그립을 크게 — 타이머에서 나가지 않고 본다 */
   const gNow = mode==="back" ? gripOf(s.e) : null;
   document.getElementById("tm-name").innerHTML=esc(gNow?exName(s.e):s.e.name)+(gNow?`<span class="tm-grip">그립 · ${esc(gNow.t)}</span>${gNow.cue?`<span class="tm-cue">▸ ${esc(gNow.cue)}</span>`:""}`:"");
   tmSet("tm-meta",tmMeta(s.e));
-  document.getElementById("tm-set").textContent=(s.wu?(s.p==="work"?"예열 세트":"예열 뒤 휴식 · 다음은 1세트")+" · 본세트 "+s.sets:"세트 "+s.set+" / "+s.sets)+(s.drop?" · 드롭세트":"");
+  document.getElementById("tm-set").textContent=(s.wu?(s.p==="work"?"예열 세트":"예열 뒤 휴식 · 다음은 1세트")+" · 본세트 "+s.sets
+    :s.ramp?"램프 "+s.set+" / "+s.sets+" · 다음은 "+s.e.of.name:"세트 "+s.set+" / "+s.sets)+(s.drop?" · 드롭세트":"");
   /* 예열 — 이 종목 1세트 앞 준비 시간이거나 1세트 중이면 큰 띠로. 다음 종목 예고 줄에도 붙인다 */
   const wuNow = s.wu&&s.p==="work" || s.p==="prep"&&nx&&nx.wu, wuNext = nx&&nx.e!==s.e&&nx.e.wu&&nx.set===1;
   if(wuNow) document.getElementById("tm-set").insertAdjacentHTML("beforeend",
@@ -3310,10 +3347,43 @@ function tmLoop(){
   }
 }
 function tmStart(d,from){
-  const st=tmSteps(d,week,from);
+  tmRun(tmSteps(d,week,from), d.t);
+}
+/* ── 웜업 타이머 (2026-11-07) ─────────────────────────────────────
+   세션 시작 전 웜업을 세션 타이머와 같은 엔진으로 따로 돌린다. 항목은 빌드의 WU_SESSION.
+   램프 무게는 화면 카드와 같은 계산(메인 = ramp() · 핵 · 8일차 바벨 = 그 종목 무게 × 비율).
+   끝의 휴식은 남긴다 — 마지막이 램프면 그게 본세트 전 휴식이다. */
+const dayKey = d => Object.keys(D.back||{}).find(k=>D.back[k]===d);
+function wuItems(d){
+  const P=mode==="back"&&D.wuPlan?D.wuPlan[dayKey(d)]:null; if(!P) return [];
+  const RR=[60,60,90,120], out=[];
+  P.forEach(x=>{
+    if(x.ramp){
+      const m=(d.mains||[])[0]; if(!m||!LIFT[m[0]]) return;
+      ramp(workWeight(m[0],week)).filter(r=>r.w).forEach((r,i)=>out.push(
+        {name:m[1]+" 램프 "+(i+1),mg:"웜업 램프",w:String(r.w),r:String(r.reps),s:r.sets,wk:r.reps*3+10,rt:RR[i]||90}));
+    } else if(x.pctOf){
+      const e=allEx(d).find(y=>x.pctOf==="#2"?y.n===2:y.name===x.pctOf); if(!e) return;
+      const base=(e.lift&&LIFT[e.lift])?workWeight(e.lift,week):parseFloat(tmW(e)); if(!(base>0)) return;
+      x.rows.forEach((r,i)=>out.push({name:exName(e)+" 램프 "+(i+1),mg:"웜업 램프",
+        w:r[0]==="bar"?"빈 봉 20":String(Math.max(20,R(base*r[0]))),r:String(r[1]),s:1,wk:r[1]*3+10,rt:r[2]}));
+    } else out.push({name:x.n,mg:x.mg||"웜업",w:x.w,r:x.r,s:x.s,wk:x.wk,rt:x.rt});
+  });
+  return out;
+}
+function wuSteps(d){
+  const it=wuItems(d), st=[];
+  it.forEach(e=>{ for(let k=1;k<=e.s;k++){
+    st.push({p:"work",t:e.wk,e:e,set:k,sets:e.s,wt:true});
+    if(e.rt>0) st.push({p:"rest",t:e.rt,e:e,set:k,sets:e.s,wt:true}); } });
+  if(st.length) st.unshift({p:"prep",t:PREP,e:st[0].e,set:1,sets:st[0].sets});
+  st.forEach(x=>{ x.li=it.indexOf(x.e)+1; x.ln=it.length; });
+  return st;
+}
+function tmRun(st,title){
   if(!st.length) return;
   tmAudio();
-  TM={st:st,i:0,endAt:Date.now()+st[0].t*1000,rest:0,run:true,title:d.t,wk:{}};
+  TM={st:st,i:0,endAt:Date.now()+st[0].t*1000,rest:0,run:true,title:title,wk:{}};
   document.getElementById("tm").hidden=false;
   document.body.style.overflow="hidden";
   tmLock(); tmPaint(); tmMedia(); tmEnter(); tmLeft=-1;
@@ -3404,6 +3474,8 @@ function bindEdits(){
   document.querySelectorAll("[data-tm]").forEach(el=>{ el.onclick=()=>{
     const d=(mode==="home"?D.home:D.back)[tab];
     if(d&&!d.rest) tmStart(d,el.dataset.tm||null); }; });
+  document.querySelectorAll("[data-wtm]").forEach(el=>{ el.onclick=()=>{
+    const d=D.back[tab]; if(mode==="back"&&d&&!d.rest) tmRun(wuSteps(d),"웜업 · "+d.t); }; });
   document.querySelectorAll("[data-prep-tm]").forEach(el=>{ el.onclick=()=>{
     const t=prepToday(), k=el.dataset.prepTm, x=k==="today"?t.d:t[k];
     if(x&&x.ex.length) tmStart(x,null); }; });
@@ -3502,7 +3574,7 @@ function timeHTML(){
   <tr><td style="font-weight:800">합계</td><td class="wrap" style="color:var(--mute)">${live.length}일 · ${live.reduce((a,x)=>a+x.sets,0)}세트</td><td class="num" style="font-weight:800">${hm(sumW)}</td><td class="num" style="font-weight:800">${hm(fix*live.length)}</td><td class="num" style="font-weight:800">${hm(sumW+fix*live.length)}</td></tr>
   </tbody></table>
   <div style="margin:12px 0 4px">${inp("wu","스트레칭 · 웜업","분")}${inp("sh","샤워","분")}${inp("sw","종목 사이 전환","초")}</div>
-  <p class="footnote">운동 = 세션 타이머와 같은 계산(폰에서 고친 수행 초 · 그립 회전 원암 120초 · 케이블 로우 양손 40초 · 8일차 교대 종목 · 디로드 절반 세트 · 준비 5초 · 마지막 휴식 뺌 · 전환 초). 예열 1세트는 운동에 들어간다(예열 ≤60초 + 휴식 60초). 웜업 + 샤워 = 위 칸 두 개(메인 리프트 램프 포함으로 셈). 총 = 운동 + 웜업 + 샤워. 기구 대기는 안 들어간다.</p>`;
+  <p class="footnote">운동 = 세션 타이머와 같은 계산(폰에서 고친 수행 초 · 그립 회전 원암 120초 · 케이블 로우 양손 40초 · 8일차 교대 종목 · 디로드 절반 세트 · 준비 5초 · 마지막 휴식 뺌 · 전환 초). 예열 1세트는 운동에 들어간다(예열 ≤60초 + 휴식 60초). 5일차 프레스 램프는 세션 타이머 안이라 운동에 들어간다. 웜업 + 샤워 = 위 칸 두 개(웜업 타이머 · 메인 리프트 램프 포함으로 셈). 총 = 운동 + 웜업 + 샤워. 기구 대기는 안 들어간다.</p>`;
 }function ttBind(){
   document.querySelectorAll("[data-ttr]").forEach(b=>b.onclick=()=>{ TT_R=Math.max(1,+b.dataset.ttr); render(); });
   document.querySelectorAll("[data-tt]").forEach(i=>i.onchange=()=>{ TT[i.dataset.tt]=Math.max(0,parseInt(i.value,10)||0);

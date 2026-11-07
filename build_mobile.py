@@ -231,7 +231,9 @@ WU_SESSION = {
 # 세션 안에 있는 램프 — 5일차 프레스 램프는 원암 레터럴 뒤 · 프레스 직전이라 세션 타이머 쪽에 끼운다
 WU_INSESSION = {
     "5": {"before": "오버헤드 프레스 (스탠딩 바벨)",
-          "items": [{"n": "프레스 램프", "mg": "웜업 램프", "w": "20", "r": "5", "s": 2, "wk": 25, "rt": 60}]},
+          # 2026-11-07 사용자 요청 — 빈 봉과 본세트 사이에 한 세트(본세트 × 75% · 1kg 격자 · 20 이하면 건너뜀) — 프레스가 오르면 같이 오른다
+          "items": [{"n": "프레스 램프", "mg": "웜업 램프", "w": "20", "r": "5", "s": 2, "wk": 25, "rt": 60},
+                    {"n": "프레스 램프 (75%)", "mg": "웜업 램프", "pct": 0.75, "r": "3", "s": 1, "wk": 15, "rt": 90}]},
 }
 
 
@@ -2918,7 +2920,10 @@ function tmSteps(d,week,from,Sf){
          남긴다 — 세트 시작 때 '드롭세트'라고 읊고 화면에도 적는다 */
       const dp=(k===S(e)&&e.drop>0);
       if(k===1&&IN&&IN.before===e.name) IN.items.forEach(x=>{
-        const pe={name:x.n,mg:x.mg,w:x.w,r:x.r,wk:x.wk,of:e};
+        let w=x.w;
+        if(x.pct){ const m=(d.mains||[])[0]; if(!m||!LIFT[m[0]]) return;
+                   const v=Math.max(20,R(workWeight(m[0],week)*x.pct)); if(v<=20) return; w=String(v); }
+        const pe={name:x.n,mg:x.mg,w:w,r:x.r,wk:x.wk,of:e};
         for(let j=1;j<=x.s;j++){ st.push({p:"work",t:x.wk,e:pe,set:j,sets:x.s,ramp:true});
                                  st.push({p:"rest",t:x.rt,e:pe,set:j,sets:x.s,ramp:true}); } });
       if(k===1&&e.wu){

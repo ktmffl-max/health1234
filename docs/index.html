@@ -1430,6 +1430,10 @@ function ovHTML(){
    막을 수 있으므로 화면을 켜둔 채 쓰는 것이 전제다. */
 const PH={prep:["준비","var(--bp)"],work:["운동","var(--mp)"],rest:["휴식","var(--sq)"]};
 const PREP=5;
+/* 2026-11-07 사용자 요청 — 예열 1세트를 타이머에 따로 넣는다(전에는 앞 종목 휴식에 끼워 넣어야 했다).
+   예열 종목(e.wu)의 1세트 앞에 '예열' 운동 구간 + 휴식을 둔다. 50% × 6~8은 본세트보다 짧으니
+   수행 초는 그 종목 수행 초와 60초 중 짧은 쪽, 뒤 휴식은 60초. 시간 탭 합계에도 그대로 들어간다. */
+const WU_WK_MAX=60, WU_REST=60;
 const mmss=v=>{const m=Math.floor(v/60),x=v%60;return (m<10?"0":"")+m+":"+(x<10?"0":"")+x;};
 /* 세트별 휴식. e.rl(엑셀 '세트별 휴식(초)')이 있으면 그 배열을, 없으면 e.rt
    하나를 전 세트에 쓴다. 복귀 램프로 세트가 배열보다 늘어난 경우에는 마지막
@@ -1457,6 +1461,10 @@ function tmSteps(d,week,from,Sf){
       /* 드롭이 걸린 종목(엑셀 O열)은 마지막 세트만 그 시간만큼 길게 잡고 표시를
          남긴다 — 세트 시작 때 '드롭세트'라고 읊고 화면에도 적는다 */
       const dp=(k===S(e)&&e.drop>0);
+      if(k===1&&e.wu){
+        st.push({p:"work",t:Math.min(WU_WK_MAX,armWk(e,e.wk)),e:e,set:1,sets:S(e),wu:true});
+        st.push({p:"rest",t:WU_REST,e:e,set:1,sets:S(e),wu:true});
+      }
       st.push({p:"work",t:armWk(e,e.wk)+(dp?e.drop:0),e:e,set:k,sets:S(e),drop:dp});
       const rt=restAt(e,k);
       if(rt>0) st.push({p:"rest",t:rt,e:e,set:k,sets:S(e)});
@@ -1742,7 +1750,7 @@ function tmMedia(){
   const s=TM.st[TM.i];
   try{
     navigator.mediaSession.metadata=new MediaMetadata({
-      title:s.e.name, artist:PH[s.p][0]+" · 세트 "+s.set+" / "+s.sets, album:TM.title});
+      title:s.e.name, artist:(s.wu?(s.p==="work"?"예열":"예열 뒤 휴식"):PH[s.p][0]+" · 세트 "+s.set+" / "+s.sets), album:TM.title});
     navigator.mediaSession.playbackState=TM.run?"playing":"paused";
     navigator.mediaSession.setActionHandler("play",tmPause);
     navigator.mediaSession.setActionHandler("pause",tmPause);
@@ -1809,17 +1817,17 @@ function tmPaint(){
   if(!TM) return;
   const s=TM.st[TM.i], nx=TM.st[TM.i+1], ph=PH[s.p];
   document.getElementById("tm-dial").style.setProperty("--phase",ph[1]);
-  document.getElementById("tm-phase").textContent=ph[0]+(s.drop?" · 드롭":"");
+  document.getElementById("tm-phase").textContent=(s.wu&&s.p==="work"?"예열":ph[0])+(s.drop?" · 드롭":"");
   document.getElementById("tm-ctx").textContent=TM.title+" · "+s.li+"/"+s.ln+" 종목";
   /* 그립 회전 종목은 이름 아래에 이번 사이클 그립을 크게 — 타이머에서 나가지 않고 본다 */
   const gNow = mode==="back" ? gripOf(s.e) : null;
   document.getElementById("tm-name").innerHTML=esc(gNow?exName(s.e):s.e.name)+(gNow?`<span class="tm-grip">그립 · ${esc(gNow.t)}</span>${gNow.cue?`<span class="tm-cue">▸ ${esc(gNow.cue)}</span>`:""}`:"");
   tmSet("tm-meta",tmMeta(s.e));
-  document.getElementById("tm-set").textContent="세트 "+s.set+" / "+s.sets+(s.drop?" · 드롭세트":"");
+  document.getElementById("tm-set").textContent=(s.wu?(s.p==="work"?"예열 세트":"예열 뒤 휴식 · 다음은 1세트")+" · 본세트 "+s.sets:"세트 "+s.set+" / "+s.sets)+(s.drop?" · 드롭세트":"");
   /* 예열 — 이 종목 1세트 앞 준비 시간이거나 1세트 중이면 큰 띠로. 다음 종목 예고 줄에도 붙인다 */
-  const wuNow = s.e.wu&&s.set===1&&s.p!=="rest", wuNext = nx&&nx.e!==s.e&&nx.e.wu&&nx.set===1;
+  const wuNow = s.wu&&s.p==="work" || s.p==="prep"&&nx&&nx.wu, wuNext = nx&&nx.e!==s.e&&nx.e.wu&&nx.set===1;
   if(wuNow) document.getElementById("tm-set").insertAdjacentHTML("beforeend",
-    `<br><span class="tm-wu">예열 1세트 먼저 — ${esc(s.e.wut||"50% × 6~8")}</span>`);
+    `<br><span class="tm-wu">예열 — ${esc(s.e.wut||"50% × 6~8")}</span>`);
   tmRecSet(tmRec(s.e));
   /* 수행 시간 — 운동 중이면 지금 세트, 준비 · 휴식 중이면 곧 시작할 세트의 종목 */
   const wt = s.p==="work" ? s.e : (nx&&nx.p==="work" ? nx.e : null);
@@ -1851,8 +1859,8 @@ function tmWkAdj(d){
   const e = s.p==="work" ? s.e : (nx&&nx.p==="work" ? nx.e : null); if(!e) return;
   const cur=TM.wk[e.name]!=null?TM.wk[e.name]:e.wk, v=Math.max(5,cur+d), dd=v-cur; if(!dd) return;
   TM.wk[e.name]=v;
-  for(let i=TM.i;i<TM.st.length;i++){ const x=TM.st[i]; if(x.p==="work"&&x.e===e) x.t=Math.max(1,x.t+dd); }
-  if(s.p==="work"&&s.e===e){
+  for(let i=TM.i;i<TM.st.length;i++){ const x=TM.st[i]; if(x.p==="work"&&!x.wu&&x.e===e) x.t=Math.max(1,x.t+dd); }
+  if(s.p==="work"&&!s.wu&&s.e===e){
     if(TM.run) TM.endAt=Math.max(Date.now()+1000, TM.endAt+dd*1000);
     else TM.rest=Math.max(1000, TM.rest+dd*1000);
   }
@@ -2070,7 +2078,7 @@ function timeHTML(){
   <tr><td style="font-weight:800">합계</td><td class="wrap" style="color:var(--mute)">${live.length}일 · ${live.reduce((a,x)=>a+x.sets,0)}세트</td><td class="num" style="font-weight:800">${hm(sumW)}</td><td class="num" style="font-weight:800">${hm(fix*live.length)}</td><td class="num" style="font-weight:800">${hm(sumW+fix*live.length)}</td></tr>
   </tbody></table>
   <div style="margin:12px 0 4px">${inp("wu","스트레칭 · 웜업","분")}${inp("sh","샤워","분")}${inp("sw","종목 사이 전환","초")}</div>
-  <p class="footnote">운동 = 세션 타이머와 같은 계산(폰에서 고친 수행 초 · 그립 회전 원암 120초 · 케이블 로우 양손 40초 · 8일차 교대 종목 · 디로드 절반 세트 · 준비 5초 · 마지막 휴식 뺌 · 전환 초). 웜업 + 샤워 = 위 칸 두 개(메인 리프트 램프 · 예열 1세트 포함으로 셈). 총 = 운동 + 웜업 + 샤워. 기구 대기는 안 들어간다.</p>`;
+  <p class="footnote">운동 = 세션 타이머와 같은 계산(폰에서 고친 수행 초 · 그립 회전 원암 120초 · 케이블 로우 양손 40초 · 8일차 교대 종목 · 디로드 절반 세트 · 준비 5초 · 마지막 휴식 뺌 · 전환 초). 예열 1세트는 운동에 들어간다(예열 ≤60초 + 휴식 60초). 웜업 + 샤워 = 위 칸 두 개(메인 리프트 램프 포함으로 셈). 총 = 운동 + 웜업 + 샤워. 기구 대기는 안 들어간다.</p>`;
 }function ttBind(){
   document.querySelectorAll("[data-ttr]").forEach(b=>b.onclick=()=>{ TT_R=Math.max(1,+b.dataset.ttr); render(); });
   document.querySelectorAll("[data-tt]").forEach(i=>i.onchange=()=>{ TT[i.dataset.tt]=Math.max(0,parseInt(i.value,10)||0);

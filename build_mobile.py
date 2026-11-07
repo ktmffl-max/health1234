@@ -211,6 +211,7 @@ WARMUP = {
 # 엑셀 웜업 칸(종목표 위 '·' 줄)의 순서를 그대로 옮긴 것이다 — 엑셀 웜업 줄을 바꾸면 여기도 같이.
 # 수행 · 휴식 초는 처음 정한 값이라 실제와 다르면 고친다(블랙번 150초는 사용자 '제일 오래 걸림' 기준 추정).
 #   {"n","w","r","s","wk","rt"} = 일반 항목 · {"ramp": 1} = 그날 메인 리프트 램프(앱 카드와 같은 ramp())
+#   {"ss": [항목, 항목], "s": 라운드} = 슈퍼세트(항목의 "of" 종목 무게 × "pct" · rt는 그 항목 뒤 쉼)
 #   {"pctOf": 종목 이름 또는 "#2"(2번 행 — 8일차 교대 종목), "rows": [[비율|"bar", 반복, 휴식초], …]}
 _SF = {"n": "숏풋 (왼발 위주)", "mg": "왼발 아치 · 5초 버티기", "w": "맨발", "r": "10", "s": 1, "wk": 60, "rt": 10}
 _SOL = {"n": "가자미근 스트레칭 (왼쪽 · 무릎 굽혀)", "mg": "종아리 · 45초 버티기", "w": "벽", "r": "", "s": 2, "wk": 45, "rt": 15}
@@ -218,7 +219,11 @@ _ER = {"n": "케이블 외회전", "mg": "회전근개", "w": "매우 가볍게"
 _BB = {"n": "블랙번", "mg": "하부 승모 · 회전근개 · 한계 안 감", "w": "1", "r": "", "s": 1, "wk": 150, "rt": 30}
 _LAT = lambda n: {"n": "랫풀다운 (가볍게)", "mg": "광배", "w": "가볍게", "r": "10~12", "s": n, "wk": 35, "rt": 45}
 WU_SESSION = {
-    "1": [_SF, _SOL, {"ramp": 1}],
+    # 2026-11-07 사용자 — 스쿼트 전 레그 익스텐션 ↔ 라잉 레그 컬 가볍게 2라운드(쉬지 않고 번갈아 · 본세트 무게의 35% · 5회 이상 남김)
+    "1": [_SF, _SOL,
+          {"ss": [{"of": "레그 익스텐션", "n": "레그 익스텐션 (가볍게)", "mg": "대퇴사두 · 5회 이상 남김", "pct": 0.35, "r": "12~15", "wk": 40, "rt": 10},
+                  {"of": "레그 컬", "n": "라잉 레그 컬 (가볍게)", "mg": "햄스트링 · 5회 이상 남김", "pct": 0.35, "r": "12~15", "wk": 40, "rt": 20}], "s": 2},
+          {"ramp": 1}],
     "2": [_ER, _BB, {"ramp": 1}],
     "3": [_BB, _LAT(3)],
     "4": [{"n": "글루트 브릿지 (맨몸)", "mg": "둔근", "w": "맨몸", "r": "15", "s": 1, "wk": 45, "rt": 15},
@@ -3372,15 +3377,22 @@ function wuItems(d){
       const base=(e.lift&&LIFT[e.lift])?workWeight(e.lift,week):parseFloat(tmW(e)); if(!(base>0)) return;
       x.rows.forEach((r,i)=>out.push({name:exName(e)+" 램프 "+(i+1),mg:"웜업 램프",
         w:r[0]==="bar"?"빈 봉 20":String(Math.max(20,R(base*r[0]))),r:String(r[1]),s:1,wk:r[1]*3+10,rt:r[2]}));
+    } else if(x.ss){
+      const g="ss"+out.length;
+      x.ss.forEach(y=>{ const e=allEx(d).find(z=>z.name===y.of);
+        const b=e?parseFloat(tmW(e)):NaN, w=b>0?String(Math.max(1,R(b*y.pct))):"가볍게";
+        out.push({name:y.n,mg:y.mg,w:w,r:y.r,s:x.s,wk:y.wk,rt:y.rt,ssg:g}); });
     } else out.push({name:x.n,mg:x.mg||"웜업",w:x.w,r:x.r,s:x.s,wk:x.wk,rt:x.rt});
   });
   return out;
 }
 function wuSteps(d){
-  const it=wuItems(d), st=[];
-  it.forEach(e=>{ for(let k=1;k<=e.s;k++){
+  const it=wuItems(d), st=[], G=[];
+  it.forEach(e=>{ const g=G[G.length-1]; if(g&&e.ssg&&g[0].ssg===e.ssg) g.push(e); else G.push([e]); });
+  /* 슈퍼세트 묶음은 라운드마다 번갈아 — 세션 타이머와 같은 걸음 */
+  G.forEach(g=>{ for(let k=1;k<=g[0].s;k++) g.forEach(e=>{
     st.push({p:"work",t:e.wk,e:e,set:k,sets:e.s,wt:true});
-    if(e.rt>0) st.push({p:"rest",t:e.rt,e:e,set:k,sets:e.s,wt:true}); } });
+    if(e.rt>0) st.push({p:"rest",t:e.rt,e:e,set:k,sets:e.s,wt:true}); }); });
   if(st.length) st.unshift({p:"prep",t:PREP,e:st[0].e,set:1,sets:st[0].sets});
   st.forEach(x=>{ x.li=it.indexOf(x.e)+1; x.ln=it.length; });
   return st;

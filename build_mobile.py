@@ -145,6 +145,9 @@ for _i, (_k, _ko, _d, _n) in enumerate(_ACC):
     LIFT_META[_k] = {"ko": _ko, "start_row": 11 + _i, "inc_row": 9 + _i, "accent": "var(--ink)",
                      "head": _ko + " 목표", "acc": True, "day": _d}
 
+# 비율 종목 — 무게 = 그 리프트 목표 × 증량기록 C열 비율 (2026-11-09 인클라인 바벨 = 벤치 × 0.8)
+RATIO_OF = {"incb": "bench"}
+
 # 추적 보조 종목 — 종목표의 이 이름 줄이 그 리프트다('메인:' 줄 없이)
 TRACK_KEYS = {_n: _k for _k, _ko, _d, _n in _ACC if _k not in _RETIRED}
 
@@ -1149,6 +1152,11 @@ def parse_config(wb):
             "acc":   bool(m.get("acc")),
             "day":   m.get("day", ""),
         }
+        # 2026-11-09 사용자 결정 — 인클라인 바벨은 따로 증량하지 않고 벤치 목표 × 비율(증량기록 C20 · 0.8).
+        # 1kg 내림 · 못 끼우는 값(5로 나눈 나머지 4)은 1kg 더 내림 — 엑셀 AJ열과 같은 식
+        if key in RATIO_OF:
+            lifts[key]["of"] = RATIO_OF[key]
+            lifts[key]["ratio"] = num(gr.cell(m["inc_row"], 3).value, 0.8)
     # 표의 줄 수와 첫 줄의 번호. 2026-09-13 주 단위 전환으로 표가 6주차에서 시작한다 —
     # '몇 번째 줄'과 '몇 주차'가 더는 같지 않으므로 base를 같이 실어 보낸다
     weeks, base = 0, 0
@@ -1995,8 +2003,12 @@ function ladder(k,w,base){
   }
   return v;
 }
-const workWeight = (k,w) => ladder(k,w,startOf(k));
-const xlWeight   = (k,w) => ladder(k,w,LIFT[k].start);
+/* 비율 종목(2026-11-09 인클라인 바벨 = 벤치 × 0.8) — 1kg 내림 · 못 끼우는 값은 1kg 더 내림(엑셀 AJ열 같은 식).
+   폰에서 무게를 고치면 비율이 바뀐다(OV.lifts[k].ratio) */
+const ratioOf = k => (OV.lifts[k]&&OV.lifts[k].ratio) || LIFT[k].ratio;
+const fromRatio = (b,r) => { let v=Math.floor(b*r+1e-9); if(v%5===4) v--; return v; };
+const workWeight = (k,w) => LIFT[k].of ? fromRatio(workWeight(LIFT[k].of,w), ratioOf(k)) : ladder(k,w,startOf(k));
+const xlWeight   = (k,w) => LIFT[k].of ? fromRatio(xlWeight(LIFT[k].of,w), LIFT[k].ratio) : ladder(k,w,LIFT[k].start);
 /* 역산 — 이번 사이클 무게를 만드는 시작중량. 사다리가 칸마다 보정되므로 나눗셈이 안 된다.
    못 끼우는 값을 입력하면 가장 가까운 끼울 수 있는 무게로 붙는다 */
 function startFor(k,w,n){
@@ -2865,6 +2877,11 @@ function editLift(el,k,after){
   grabInput(el, fmt(workWeight(k,week)), true, v=>{
     const n=parseFloat(v);
     if(v===""){ delete OV.lifts[k]; }
+    else if(!isNaN(n)&&n>0&&LIFT[k].of){
+      const b=workWeight(LIFT[k].of,week), r=b>0 ? Math.round(n/b*1000)/1000 : LIFT[k].ratio;
+      if(Math.abs(r-LIFT[k].ratio)<0.001) delete OV.lifts[k];
+      else OV.lifts[k]={ratio:r, start:LIFT[k].start, base:LIFT[k].start};
+    }
     else if(!isNaN(n)&&n>0){
       // 이번 사이클 무게를 입력받아 시작중량을 역산 — 이후 사이클·원판·웜업이 전부 따라온다.
       // 미달로 유지된 사이클은 기록이 이미 빼고 세므로 여기서도 같은 계단 수를 쓴다
@@ -2889,7 +2906,8 @@ function editEx(el,key,after,fill,hint){
 function ovHTML(){
   const items=[];
   for(const k in OV.lifts)
-    items.push(`${LIFT[k].ko} — 시작중량 ${fmt(OV.lifts[k].base)} → ${fmt(OV.lifts[k].start)}kg`);
+    items.push(OV.lifts[k].ratio ? `${LIFT[k].ko} — 비율 ${LIFT[k].ratio} → ${OV.lifts[k].ratio}`
+                                 : `${LIFT[k].ko} — 시작중량 ${fmt(OV.lifts[k].base)} → ${fmt(OV.lifts[k].start)}kg`);
   for(const k in OV.ex){
     const p=k.split("|");
     items.push(`${p[0]==="back"?"복귀 ":""}${p[1]} · ${p[2]} — ${OV.ex[k].base} → ${OV.ex[k].w}`);

@@ -117,6 +117,9 @@ def say_reps(s):
     if not m or not m.group(1):
         return say_mg(s)
     head = num_words(m.group(1))
+    rest = m.group(3) or ""
+    if rest.startswith("초") and not m.group(2):     # '45초' — 등척 홀드(2026-11-10)
+        return re.sub(r"\s+", " ", (head + " 초 " + say_mg(rest[1:])).strip())
     if m.group(2):
         head += " 에서 " + num_words(m.group(2))
     return re.sub(r"\s+", " ", (head + " 회 " + say_mg(m.group(3) or "")).strip())

@@ -1,4 +1,4 @@
-const VERSION = "a7f0afbcb658";
+const VERSION = "637151a86b67";
 const CACHE = "workout-" + VERSION;
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest",
                 "./icon-192.png", "./icon-512.png"];
@@ -8,7 +8,7 @@ const ASSETS = ["./", "./index.html", "./manifest.webmanifest",
    그래서 파일 이름에 내용 해시를 박아 따로 보관한다 — 하는 말이 바뀔 때만
    이름이 바뀌고, 그때만 새로 받는다. */
 const VOICE_CACHE = "workout-voice";
-const VOICE = "./voice/sprite-daceecf9af.wav";
+const VOICE = "./voice/sprite-a461eafab2.wav";
 
 self.addEventListener("install", e => {
   e.waitUntil(Promise.all([

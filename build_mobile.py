@@ -139,8 +139,11 @@ _ACC = [  # 키, 앱 이름, 요일, 종목표 이름 — 시작중량_설정 11
 #  추적을 멈춘 종목 — 행 번호가 순서로 정해지니 목록에선 빼지 않고 여기서 건너뛴다
 #  prot: 2026-10-26 월 스미스 프로트랙션 → 체스트 프레스 머신 프로트랙션(토요일과 같은 범위 + 핀 방식)
 #  incline: 2026-11-09 8일차 인클라인 벤치프레스 머신 → 인클라인 덤벨 프레스(머신은 늘어난 위치가 안 걸림 · 사용자) — 덤벨 더블 프로그레션
-#  hack: 2026-11-10 일시 — 왼 슬개골 아래 통증으로 1~2주 레그 익스텐션 등척 홀드. 복귀는 60에서 다시(증량표 E23 80은 그대로) — 그때 여기서 뺀다
-_RETIRED = {"prot", "incline", "hack"}
+_RETIRED = {"prot", "incline"}
+# 2026-11-10 사용자 결정 — 핵 스쿼트 2사이클 쉬고(왼 슬개골 아래 · 그동안 4일차 1번 = 레그 익스텐션 등척 홀드)
+# 사이클 4(17주차)에 60에서 다시 — 회차마다 +5 · 80에 닿으면 원래 +2(못 끼우는 값 +1). 쉬는 두 칸(15 · 16주차)은 80 그대로.
+# 엑셀 증량기록 AL32~AL52가 같은 식이다. 자리 바꾸기는 사이클_종목교대 '4사이클부터' 줄
+RESTART = {"hack": {"hold": 15, "at": 17, "base": 60, "inc": 5, "cap": 80}}
 for _i, (_k, _ko, _d, _n) in enumerate(_ACC):
     if _k in _RETIRED:
         continue
@@ -216,6 +219,21 @@ WARMUP = {
 }
 
 
+# 2026-11-10 사용자 요청 — 무릎(왼 슬개골 아래) 부하 종목은 세션 타이머에 노랑 경고 띠 — 그 종목 하기 전 휴식 · 세트 · 세트 사이 휴식 동안.
+# 카드에도 같은 글자. 기준은 통증 3/10 · 다음 날 아침 더 나쁘지 않을 것 (일차, 종목) — 교대표 종목(4일차 핵 스쿼트)도 여기서 찾는다
+_KN = "무릎 · 통증 3/10 이하 · 다음 날 아침 확인"
+KNEE = {
+    ("1", "스쿼트"): _KN + " · 넘으면 다음 증량 미루고 같은 무게 한 번 더",
+    ("1", "레그 프레스"): _KN + " · 아프면 깊이 → 무게 → 내리는 속도 순으로",
+    ("1", "불가리안 스플릿 스쿼트 (상체 숙여서)"): _KN + " · 왼다리 앞일 때 무릎 안쪽 모임 · 아프면 보폭 넓게",
+    ("1", "레그 익스텐션"): _KN + " · 3초 내리기 · 맨 위 잠그지 않기",
+    ("4", "레그 익스텐션 등척 홀드 (무릎 60°)"): "무릎 · 버티는 동안 통증 3/10 이하 · 잠그지 않기",
+    ("4", "핵 스쿼트"): _KN + " · 발 높게 · 왼 앞꿈치 쏠림 확인",
+    ("4", "레그 프레스 (발 높게)"): _KN,
+    ("7", "레그 익스텐션"): _KN + " · 3초 내리기 · 맨 위 잠그지 않기",
+}
+
+
 # 2026-11-07 사용자 요청 — 세션 시작 전 웜업 타이머(세션 타이머와 따로 · 그 일차 화면 안 버튼).
 # 엑셀 웜업 칸(종목표 위 '·' 줄)의 순서를 그대로 옮긴 것이다 — 엑셀 웜업 줄을 바꾸면 여기도 같이.
 # 수행 · 휴식 초는 처음 정한 값이라 실제와 다르면 고친다(블랙번 300초 = 사용자 실측 약 5분 · 2026-11-07).
@@ -245,9 +263,10 @@ WU_SESSION = {
           {"n": "왼발목 무릎 벽 밀기", "mg": "발목", "w": "맨발", "r": "10~15", "s": 1, "wk": 60, "rt": 15},
           *_HIP,
           # 2026-11-07 사용자 — 레그 익스텐션 가볍게 2세트(4일차엔 그 종목이 없어 1일차 무게 칸 × 50%) + 빈 썰매 핵 스쿼트 × 10(발 위치 · 깊이 확인)
-          # 2026-11-10 사용자 — 핵 스쿼트를 1~2주 레그 익스텐션 등척 홀드로(왼 슬개골 아래). 빈 썰매 · 핵 램프는 뺌 — 복귀 때 되살릴 것:
-          #   {"n": "핵 스쿼트 (빈 썰매)", ...}, {"pctOf": "핵 스쿼트", "rows": [[0.5, 8, 60], [0.75, 4, 90]]}
-          {"ss": [{"of": "레그 익스텐션", "ofDay": "1", "n": "레그 익스텐션 (가볍게)", "mg": "대퇴사두 · 5회 이상 남김", "pct": 0.5, "r": "12~15", "wk": 40, "rt": 30}], "s": 2}],
+          # 2026-11-10 사용자 — 사이클 1~3은 4일차 1번이 등척 홀드라 빈 썰매 · 핵 램프를 건너뛴다("cf": 그 사이클부터 나옴)
+          {"ss": [{"of": "레그 익스텐션", "ofDay": "1", "n": "레그 익스텐션 (가볍게)", "mg": "대퇴사두 · 5회 이상 남김", "pct": 0.5, "r": "12~15", "wk": 40, "rt": 30}], "s": 2},
+          {"n": "핵 스쿼트 (빈 썰매)", "mg": "발 반 발 위 · 왼 앞꿈치 쏠림 확인", "w": "원판 없이", "r": "10", "s": 1, "wk": 35, "rt": 45, "cf": 4},
+          {"pctOf": "핵 스쿼트", "rows": [[0.5, 8, 60], [0.75, 4, 90]], "cf": 4}],
     "5": [_ER, _BB],
     # 2026-11-07 사용자 — 데드 램프 앞 라잉 레그 컬 가볍게 2세트(양측 · 1일차 레그 컬 무게 칸 × 50% · 햄스트링 근위부 이력)
     "7": [_SF, _SOL, *_HIP,
@@ -604,6 +623,8 @@ def parse_day(ws, wsf=None):
                 item["wut"] = WARMUP[wk_] or WU_DEFAULT
             if is_back(ws) and item["name"] in MICRO:
                 item["mic"] = MICRO[item["name"]]
+            if is_back(ws) and wk_ in KNEE:
+                item["kn"] = KNEE[wk_]
             if trk:
                 # 중량은 앱이 주차로 낸다 — 엑셀 캐시값은 C4가 늦으면 지난 주 값이다
                 item["lift"], item["trk"] = trk, True
@@ -995,7 +1016,7 @@ ALT_SHEET = "사이클_종목교대"
 # 사이클마다 갈아 끼우는 칸 — 일차 시트 종목(짝수 사이클)과 교대표 종목(홀수 사이클)이 이 칸들만 서로 바꾼다.
 # 번호(#) · 세트는 자리 그대로다(세트가 다르면 일차 합계가 틀어지니 빌드에서 막는다)
 ALT_KEYS = ("name", "mg", "w", "s", "r", "wk", "rt", "rl", "ss", "memo", "alt", "ind", "drop",
-            "lift", "trk", "pct", "lo", "wu", "wut", "mic", "rw")
+            "lift", "trk", "pct", "lo", "wu", "wut", "mic", "rw", "kn")
 # 교대표 중량 칸 수식 — '=시작중량_설정!$E$9' 또는 '=MAX(20,MROUND(시작중량_설정!$E$9*0.95,1))'
 ALT_REF = re.compile(r"^=(?:MAX\(20,\s*MROUND\()?시작중량_설정!\$E\$(\d+)(?:\*([\d.]+),\s*1\)\))?$")
 
@@ -1025,8 +1046,10 @@ def parse_cycle_alt(wb, wbf):
         if not isinstance(d, (int, float)):
             break
         turn = s(C("차례", r))
-        if turn not in ("홀수 사이클", "짝수 사이클"):
-            sys.exit(f"[중단] {ALT_SHEET} {r}행 차례 '{turn}' — '홀수 사이클' · '짝수 사이클' 중 하나여야 합니다.")
+        # 2026-11-10 'N사이클부터' — 번갈지 않고 그 사이클부터 계속 표 종목(4일차 핵 스쿼트 복귀)
+        mf = re.match(r"^(\d+)사이클부터$", turn)
+        if turn not in ("홀수 사이클", "짝수 사이클") and not mf:
+            sys.exit(f"[중단] {ALT_SHEET} {r}행 차례 '{turn}' — '홀수 사이클' · '짝수 사이클' · 'N사이클부터' 중 하나여야 합니다.")
         v = {k: None for k in ALT_KEYS}
         v.update({"name": s(C("종목", r)), "mg": s(C("근육군", r)), "s": int(num(C("세트", r))),
                   "r": s(C("횟수", r)), "wk": int(num(C("수행(초)", r))), "rt": int(num(C("휴식(초)", r))),
@@ -1042,8 +1065,11 @@ def parse_cycle_alt(wb, wbf):
             v["lift"], v["pct"] = k, float(m.group(2) or 1)
         if v["name"] in MICRO:
             v["mic"] = MICRO[v["name"]]
+        if (str(int(d)), v["name"]) in KNEE:
+            v["kn"] = KNEE[(str(int(d)), v["name"])]
         rows.append({"day": str(int(d)), "base": s(C("일차 시트 종목", r)),
-                     "side": "odd" if turn == "홀수 사이클" else "even", "v": v})
+                     "side": "from" if mf else "odd" if turn == "홀수 사이클" else "even",
+                     "from": int(mf.group(1)) if mf else None, "v": v})
     return rows
 
 
@@ -1158,6 +1184,8 @@ def parse_config(wb):
         }
         # 2026-11-09 사용자 결정 — 인클라인 바벨은 따로 증량하지 않고 벤치 목표 × 비율(증량기록 C20 · 0.8).
         # 1kg 내림 · 못 끼우는 값(5로 나눈 나머지 4)은 1kg 더 내림 — 엑셀 AJ열과 같은 식
+        if key in RESTART:
+            lifts[key]["rs"] = RESTART[key]
         if key in RATIO_OF:
             lifts[key]["of"] = RATIO_OF[key]
             lifts[key]["ratio"] = num(gr.cell(m["inc_row"], 3).value, 0.8)
@@ -1411,7 +1439,7 @@ def build(xlsx_path, out_path):
                 e["gname"] = grip_display_name(name)
     # 사이클 종목 교대(2026-11-02) — 교대표 종목을 일차 시트 종목 자리에 붙인다. 앱이 오늘 사이클로 한쪽을 얹는다
     alts = parse_cycle_alt(wb, wbf)
-    data["cycAlt"] = [[a["day"], a["base"], a["v"]["name"], a["side"]] for a in alts]
+    data["cycAlt"] = [[a["day"], a["base"], a["v"]["name"], a["side"], a["from"]] for a in alts]
     for a in alts:
         hit = [e for e in all_ex(data["back"].get(a["day"], {})) if e.get("name") == a["base"]]
         if len(hit) != 1:
@@ -1420,11 +1448,15 @@ def build(xlsx_path, out_path):
         e, v = hit[0], a["v"]
         if e.get("grip") or e.get("cv"):
             sys.exit(f"[중단] {ALT_SHEET} '{a['day']}일차 {a['base']}' — 그립 회전이나 다른 교대가 이미 걸린 종목입니다.")
-        if v["s"] != e["s"]:
+        if a["side"] != "from" and v["s"] != e["s"]:   # 'N사이클부터'는 한 번 바뀌고 끝이라 세트가 달라도 된다
             sys.exit(f"[중단] {ALT_SHEET} '{v['name']}' {v['s']}세트 ≠ 일차 시트 '{a['base']}' {e['s']}세트 — "
                      "같은 자리는 같은 세트여야 일차 합계가 맞습니다.")
         if v["ss"] is None:
             v["ss"] = e.get("ss", "")
+        if a["side"] == "from":
+            e["cv"] = {"on": v, "off": {k: e.get(k) for k in ALT_KEYS}}
+            e["cvf"] = a["from"]
+            continue
         other = "even" if a["side"] == "odd" else "odd"
         e["cv"] = {a["side"]: v, other: {k: e.get(k) for k in ALT_KEYS}}
         # 추적 보조가 사이클 걸러 한 번이 되면 미달 칸 사이에 빈 칸(안 한 사이클)이 끼인다 —
@@ -1435,7 +1467,8 @@ def build(xlsx_path, out_path):
     # 보조 추적 종목이 어느 일차에 있는지 — 증량 탭이 일차별로 묶는다. 없는 종목은 '' (추적 안 함)
     for k, L in data["config"]["lifts"].items():
         if L.get("acc"):
-            L["day"] = next((d for d in order for e in all_ex(data["back"][d])
+            L["day"] = next((d for d in order for e0 in all_ex(data["back"][d])
+                             for e in [e0] + list((e0.get("cv") or {}).values())
                              if e.get("lift") == k and e.get("trk")), "")
 
     # 배포용 사본. 파일명을 index.html로 고정해야 사이트 주소 루트가 열리고,
@@ -1460,8 +1493,9 @@ def build(xlsx_path, out_path):
     train = sum(1 for _, _, n in data["plan"]["rows"] if n)
     if data.get("gripRot"):
         print(f"  등 그립 회전: {len(data['gripRot']['rows'])}종목 · {data['gripRot']['start']}사이클부터")
-    for d, base, name, side in data.get("cycAlt") or []:
-        print(f"  사이클 종목 교대: {d}일차 {base} ↔ {name}({'홀수' if side == 'odd' else '짝수'} 사이클)")
+    for d, base, name, side, frm in data.get("cycAlt") or []:
+        print(f"  사이클 종목 교대: {d}일차 {base} → {name}({frm}사이클부터)" if side == "from" else
+              f"  사이클 종목 교대: {d}일차 {base} ↔ {name}({'홀수' if side == 'odd' else '짝수'} 사이클)")
     print(f"  훈련 {train}일 · 사이클당 {data['plan']['total']}세트 "
           f"(주당 환산 {round(data['plan']['total'] * 7 / len(data['plan']['rows']))}) "
           f"· {data['config']['weeks']}사이클 계획")
@@ -1668,6 +1702,10 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .tm-wu{display:inline-block;margin-top:8px;padding:6px 12px;border-radius:14px;font-size:13.5px;line-height:1.4;
   max-width:100%;text-align:center;font-weight:800;color:var(--bg);background:var(--sq)}
 .mic-dn{padding-left:10px;padding-right:10px}
+/* 2026-11-10 무릎 경고(노랑) — 카드 한 줄 · 타이머 띠 */
+.kn{margin-top:4px;font-size:13px;font-weight:700;color:var(--bp)}
+.tm-kn{display:inline-block;margin-top:8px;padding:6px 12px;border-radius:14px;font-size:13.5px;line-height:1.4;
+  max-width:100%;text-align:center;font-weight:800;color:#1a1400;background:#f2c200}
 .wk-ed{margin-left:6px;cursor:pointer;border-style:solid;vertical-align:middle}
 .wk-ed.edited{color:var(--bp);border-color:var(--bp)}
 .wk-ed .w-input{width:56px;font-size:12px;padding:2px 5px}
@@ -1881,11 +1919,13 @@ function altRound(){
 let ALT_ON=null;                     /* 지금 얹힌 쪽 — "odd" · "even" (기준일 전이면 even = 일차 시트 그대로) */
 const altEach = f => { for(const d in (D.back||{})){ const day=D.back[d]; if(!day||day.rest) continue;
   (day.ex||[]).concat(day.groups?day.groups.reduce((a,g)=>a.concat(g[1]),[]):[]).forEach(e=>{ if(e.cv) f(e,d); }); } };
+/* 2026-11-10 'N사이클부터'(e.cvf) — 번갈지 않고 그 사이클부터 on(4일차 핵 스쿼트 복귀). 종목마다 쪽이 달라 각자 e.cvs에 쥔다 */
+const altSide = (e,r) => e.cvf ? ((r!=null&&r>=e.cvf)?"on":"off") : ((r!=null&&r%2===1)?"odd":"even");
 function applyAlt(){
-  const r=altRound(), side=(r!=null&&r%2===1)?"odd":"even";
-  if(side===ALT_ON) return false;
-  ALT_ON=side; altEach(e=>Object.assign(e,e.cv[side]));
-  return true;
+  const r=altRound(); let ch=false;
+  ALT_ON=(r!=null&&r%2===1)?"odd":"even";
+  altEach(e=>{ const sd=altSide(e,r); if(e.cvs!==sd){ e.cvs=sd; Object.assign(e,e.cv[sd]); ch=true; } });
+  return ch;
 }
 applyAlt();
 /* ── 회전별 순서 바꾸기 (2026-11-04 · 사이클_그립회전 아래 표) ── 그 회전에만 두 종목 자리와 번호를 맞바꾼다.
@@ -1907,9 +1947,9 @@ applyOrd();
 function altIdle(key){
   const p=key.split("|"); if(p[0]!=="back"||!ALT_ON) return false;
   const day=D.back[p[1]]; if(!day||day.rest) return false;
-  const other=ALT_ON==="odd"?"even":"odd";
+  const oth=e=>e.cvf?(e.cvs==="on"?"off":"on"):(ALT_ON==="odd"?"even":"odd");
   return (day.ex||[]).concat(day.groups?day.groups.reduce((a,g)=>a.concat(g[1]),[]):[])
-    .some(e=>e.cv&&e.cv[other].name===p[2]&&e.name!==p[2]);
+    .some(e=>e.cv&&e.cv[oth(e)].name===p[2]&&e.name!==p[2]);
 }
 
 /* ── 이 기기에서만 적용되는 중량 덮어쓰기 ─────────────────────────
@@ -1997,6 +2037,13 @@ function stepsTo(k,w){ let n=0; for(let c=1;c<w;c++) if(!missed(k,c)) n++; retur
    엑셀 증량기록도 같은 방식이라 두 곳이 같은 숫자를 내려면 여기서도 걸어야 한다 */
 function ladder(k,w,base){
   const L=LIFT[k], ev=L.every||1, f0=L.from||WBASE;   /* 보조 둘은 13주차에서 출발한다 */
+  /* 2026-11-10 다시 출발(rs · 핵 스쿼트) — hold~at-1 칸은 그대로 · at 칸에 base · 그 뒤 cap까지 +inc · 닿으면 원래 증량폭.
+     엑셀 증량기록 AL열 같은 식 */
+  const S=L.rs;
+  if(S&&w>=S.at){ let v=S.base;
+    for(let c=S.at+1;c<=w;c++){ if(missed(k,c-1)) continue; v = v<S.cap ? Math.min(S.cap,v+S.inc) : R(v+L.inc); }
+    return v; }
+  if(S&&w>=S.hold) return ladder(k,S.hold-1,base);
   let v=base;
   for(let c=f0+1;c<=w;c++){
     if(missed(k,c-1)) continue;              /* 앞 주가 미달이면 그 중량을 한 번 더 */
@@ -2167,7 +2214,7 @@ function exHTML(e,prefix,sets,timed){
   const gp = mode==="back" ? gripOf(e) : null;
   return `<article class="ex"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
-      <div class="ex-t"><h4>${esc(gp&&e.gname?e.gname:e.name)}</h4>${gp?`<div class="grip">그립 · ${esc(gp.t)} <i>(회전 ${gp.n})</i></div>${gp.cue?`<div class="grip cue">▸ ${esc(gp.cue)}</div>`:""}`:""}${e.cv&&ALT_ON?`<div class="grip">사이클 교대 · ${ALT_ON==="odd"?"홀수":"짝수"} 사이클 <i>(다음 사이클은 ${esc(e.cv[ALT_ON==="odd"?"even":"odd"].name)})</i></div>`:""}${e.wu?`<div class="grip" style="color:var(--sq)">예열 · ${esc(e.wut||"50% × 6~8")}</div>`:""}<div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
+      <div class="ex-t"><h4>${esc(gp&&e.gname?e.gname:e.name)}</h4>${gp?`<div class="grip">그립 · ${esc(gp.t)} <i>(회전 ${gp.n})</i></div>${gp.cue?`<div class="grip cue">▸ ${esc(gp.cue)}</div>`:""}`:""}${e.cv&&e.cvf?(e.cvs==="on"?"":`<div class="grip">${e.cvf-1}사이클까지 <i>(${e.cvf}사이클부터 ${esc(e.cv.on.name)})</i></div>`):e.cv&&ALT_ON?`<div class="grip">사이클 교대 · ${ALT_ON==="odd"?"홀수":"짝수"} 사이클 <i>(다음 사이클은 ${esc(e.cv[ALT_ON==="odd"?"even":"odd"].name)})</i></div>`:""}${e.kn?`<div class="kn">⚠ ${esc(e.kn)}</div>`:""}${e.wu?`<div class="grip" style="color:var(--sq)">예열 · ${esc(e.wut||"50% × 6~8")}</div>`:""}<div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
       <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${wEd?'edited':''}"${wAttr}>${esc(w)}</span></div></div>
     ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${armWk(e,e.wk)}초${armWk(e,e.wk)!==e.wk?` (${gp&&gp.arm}${gp&&gp.arm==="원암"?" · 좌우":""})`:""} · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button><span class="tm-none wk-ed${OVT[key]?" edited":""}" data-wkkey="${escAttr(key)}">수행 ${e.wk}초 &#9998;</span></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
@@ -3324,7 +3371,7 @@ function tmMeta(e){
   const key=tmKey(e), p=key.split("|");
   const ov = p[0]==="lift" ? OV.lifts[p[1]] : OV.ex[p.slice(1).join("|")];
   const w=`<span class="tm-w${ov?" edited":""}" data-tmw="${escAttr(key)}">${esc(tmW(e))}</span>`;
-  return [esc(e.mg), w, e.r?esc(e.r)+"회":""].filter(Boolean).join(" · ");
+  return [esc(e.mg), w, e.r?esc(e.r)+(/초$/.test(e.r)?"":"회"):""].filter(Boolean).join(" · ");
 }
 function tmEditW(el){
   const p=el.dataset.tmw.split("|");
@@ -3357,6 +3404,10 @@ function tmPaint(){
   const wuNow = s.wu&&s.p==="work" || s.p==="prep"&&nx&&nx.wu, wuNext = nx&&nx.e!==s.e&&nx.e.wu&&nx.set===1;
   if(wuNow) document.getElementById("tm-set").insertAdjacentHTML("beforeend",
     `<br><span class="tm-wu">예열 — ${esc(s.e.wut||"50% × 6~8")}</span>`);
+  /* 무릎 경고(2026-11-10) — 그 종목 세트 중 · 세트 사이 휴식 · 그 종목 앞 휴식(다음이 그 종목)이면 노랑 띠 */
+  const knE = s.p==="work" ? s.e : (nx ? nx.e : null);
+  if(knE&&knE.kn&&!s.wt&&!s.ramp) document.getElementById("tm-set").insertAdjacentHTML("beforeend",
+    `<br><span class="tm-kn">⚠ ${esc(knE.kn)}</span>`);
   tmRecSet(tmRec(s.e));
   /* 수행 시간 — 운동 중이면 지금 세트, 준비 · 휴식 중이면 곧 시작할 세트의 종목 */
   const wt = s.p==="work" ? s.e : (nx&&nx.p==="work" ? nx.e : null);
@@ -3424,8 +3475,9 @@ function tmStart(d,from){
 const dayKey = d => Object.keys(D.back||{}).find(k=>D.back[k]===d);
 function wuItems(d){
   const P=mode==="back"&&D.wuPlan?D.wuPlan[dayKey(d)]:null; if(!P) return [];
-  const RR=[60,60,90,120], out=[];
+  const RR=[60,60,90,120], out=[], cyc=altRound();
   P.forEach(x=>{
+    if(x.cf&&(cyc==null||cyc<x.cf)) return;          /* 2026-11-10 그 사이클부터 나오는 웜업 항목 */
     if(x.ramp){
       const m=(d.mains||[])[0]; if(!m||!LIFT[m[0]]) return;
       ramp(workWeight(m[0],week)).filter(r=>r.w).forEach((r,i)=>out.push(

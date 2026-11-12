@@ -5,7 +5,7 @@ echo.
 echo  [1/2] 워크북 -^> 모바일 HTML
 echo  --------------------------------
 where python >nul 2>nul
-if %errorlevel%==0 (python build_mobile.py) else (py -3 build_mobile.py)
+if %errorlevel%==0 (python 도구\build_mobile.py) else (py -3 도구\build_mobile.py)
 if errorlevel 1 goto :fail
 
 echo.

@@ -4161,7 +4161,8 @@ if __name__ == "__main__":
         if not src.exists():
             sys.exit(f"파일을 찾을 수 없습니다: {src}")
     else:
-        src = pick_latest(Path(__file__).resolve().parent)
+        # 2026-11-13 폴더 정리 — 스크립트는 도구/에, 워크북은 그 위 운동/에
+        src = pick_latest(Path(__file__).resolve().parent.parent)
         print(f"워크북: {src.name}")
-    out = Path(a.out) if a.out else src.with_name(src.stem + "_모바일.html")
+    out = Path(a.out) if a.out else Path(__file__).resolve().parent / (src.stem + "_모바일.html")   # 로컬 미리보기는 도구/에
     build(src, out)

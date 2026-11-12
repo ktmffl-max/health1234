@@ -116,7 +116,7 @@ def cmd_pull(a):
     print(msg)
 
 
-VIEW = CSV.parent / "세트기록_보기.xlsx"
+VIEW = CSV.parent.parent / "세트기록_보기.xlsx"   # 2026-11-13 폴더 정리 — 스크립트 · csv · .sync_url은 도구/, 보는 파일만 운동/에
 
 
 def write_view():

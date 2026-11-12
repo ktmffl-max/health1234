@@ -2099,9 +2099,18 @@ try{ SYNC_URL=localStorage.getItem(SYU)||""; SDIRTY=JSON.parse(localStorage.getI
 function syncSaveState(){ try{ localStorage.setItem(SYD,JSON.stringify(SDIRTY)); localStorage.setItem(SYT,SYNC_AT); }catch(e){} }
 function syncMark(date){ if(SDIRTY.indexOf(date)<0) SDIRTY.push(date); syncSaveState();
   clearTimeout(syncTimer); syncTimer=setTimeout(sSync,3000); syncPaint(); }
+/* 등 그립 회전 종목은 이름 뒤에 그 사이클의 그립을 붙여 보낸다(2026-11-13) — '랫풀다운 [오버 넓게]'.
+   PC 표가 같은 그립끼리만 비교한다. 원암 축이 있으면 '· 원암/양손'까지 붙는다(gripOf().t) */
+function gripTag(day,name,round){
+  const d=D.back&&D.back[day]; if(!d||d.rest||!round) return "";
+  const e=allEx(d).find(x=>x.name===name); if(!e||!e.grip) return "";
+  const sv=VIEW_R; VIEW_R=round; let g=null; try{ g=gripOf(e); }finally{ VIEW_R=sv; }
+  return g&&g.t ? g.t : "";
+}
 function sRowsOf(d){ const x=SETS[d], out=[]; if(!x) return out;
-  for(const n in x.ex) x.ex[n].forEach((s,i)=>{ if(Object.keys(s).length)
-    out.push([d,x.round||"",x.day||"",n,i+1,s.w||"",s.r||"",s.ok?"O":""]); });
+  for(const n in x.ex){ const t=gripTag(x.day,n,x.round), nm=t?`${n} [${t}]`:n;
+    x.ex[n].forEach((s,i)=>{ if(Object.keys(s).length)
+      out.push([d,x.round||"",x.day||"",nm,i+1,s.w||"",s.r||"",s.ok?"O":""]); }); }
   return out; }
 function sSync(){
   if(!SYNC_URL||!SDIRTY.length||syncBusy||!navigator.onLine) return;
@@ -2121,6 +2130,9 @@ function syncText(){
 function syncPaint(){ const el=document.getElementById("sl-sync"); if(el) el.textContent=syncText(); }
 window.addEventListener("online",sSync);
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") sSync(); });
+/* 2026-11-13 등 이름에 그립 꼬리표가 붙었다 — 시트의 옛 이름 줄을 갈아끼우게 한 번 전부 다시 보낸다 */
+try{ if(localStorage.getItem("wk-sync-v")!=="2"){ SDIRTY=Array.from(new Set(SDIRTY.concat(Object.keys(SETS)))); syncSaveState();
+  localStorage.setItem("wk-sync-v","2"); } }catch(e){}
 setTimeout(sSync,1500);
 const sPlan = w => String(w||"").replace(/\s*kg$/,"");
 function sToggle(date,day,name,i,pw){
@@ -2156,9 +2168,7 @@ function setLogHTML(e,n){
 /* PC로 — 탭 구분 한 줄 = 한 세트. Claude가 받아서 세트기록.csv에 합친다(같은 날짜 · 종목 · 세트는 덮어씀) */
 function sExport(){
   const out=["#세트기록 v1","날짜\t사이클\t일차\t종목\t세트\t무게\t횟수\t달성"];
-  Object.keys(SETS).sort().forEach(d=>{ const x=SETS[d];
-    for(const n in x.ex) x.ex[n].forEach((s,i)=>{ if(!Object.keys(s).length) return;
-      out.push([d,x.round||"",x.day||"",n,i+1,s.w||"",s.r||"",s.ok?"O":""].join("\t")); }); });
+  Object.keys(SETS).sort().forEach(d=>{ sRowsOf(d).forEach(r=>out.push(r.join("\t"))); });
   return out.join("\n");
 }
 const isDone = v => v===""||/^[oO○]$/.test(v);        /* 엑셀: OR(칸="",칸="O") */

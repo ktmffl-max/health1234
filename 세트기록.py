@@ -159,7 +159,9 @@ def cmd_show(a):
         print("해당 기록 없음" + ("" if CSV.exists() else " — 세트기록.csv가 아직 없다"))
         return
     by_ex = OrderedDict()
-    for r in sorted(rows, key=lambda r: (r["일차"], r["날짜"], int(r["세트"] or 0))):
+    # 등 그립 회전 종목은 '랫풀다운 [오버 넓게 · 양손]'처럼 그립이 이름에 붙어 온다(앱 2026-11-13) —
+    # 그립마다 따로 표를 만들어 같은 그립끼리만 '지난번 대비'를 잰다. 같은 종목의 그립 표는 나란히
+    for r in sorted(rows, key=lambda r: (r["일차"], r["종목"].split(" [")[0], r["날짜"], int(r["세트"] or 0))):
         by_ex.setdefault((r["일차"], r["종목"]), OrderedDict()).setdefault(
             (r["날짜"], r["사이클"]), {})[int(r["세트"] or 0)] = r
     for (day, ex), sess in by_ex.items():
@@ -168,7 +170,8 @@ def cmd_show(a):
         head = (_pad("날짜", 10) + _pad("사이클", 7) + "│ " + " ".join(_pad(f"{k}세트", cw) for k in range(1, n + 1))
                 + " │ " + _pad("추정1RM", 8, True) + _pad("최고", 6, True) + _pad("총횟수", 8, True) + _pad("볼륨", 8, True) + " │ 지난번 대비")
         print()
-        print(f"■ {day}일차 · {ex}")
+        base, _, grip = ex.partition(" [")
+        print(f"■ {day}일차 · {base}" + (f"  ‹그립 {grip.rstrip(']')}› — 같은 그립끼리 비교" if grip else ""))
         print("  " + head)
         print("  " + "─" * _w(head))
         prev = first = None

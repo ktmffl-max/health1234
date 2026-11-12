@@ -1281,6 +1281,8 @@ def parse_log(wb):
             cols["fat"] = c
         elif h.startswith("관절"):
             cols["joint"] = c
+        elif h.startswith("스트랩"):        # 2026-11-12 AN열 — 스트랩 쓴 종목 · 세트(판정과 무관)
+            cols["strap"] = c
     out, seen = {}, False
     for r in range(hdr + 1, ws.max_row + 1):
         m = re.match(r"(\d+)", s(ws.cell(r, 1).value))
@@ -2019,7 +2021,7 @@ const LGK="wk-log";
 let LOG={};
 try{ const o=JSON.parse(localStorage.getItem(LGK)||"null"); if(o&&typeof o==="object") LOG=o; }catch(e){}
 const XL = D.log||{};
-const LOGF={fat:"다음날 피로",joint:"관절 이상",memo:"메모"};
+const LOGF={fat:"다음날 피로",joint:"관절 이상",strap:"스트랩",memo:"메모"};
 const xlVal = (c,f) => (XL[c]&&XL[c][f]!=null) ? String(XL[c][f]) : "";
 function saveLog(){ try{ localStorage.setItem(LGK,JSON.stringify(LOG)); }catch(e){} }
 (function(){ let ch=false;
@@ -2873,6 +2875,8 @@ function progressHTML(week){
       <div class="seg fat">${[0,1,2,3,4,5].map(n=>`<button class="${fat===String(n)?'on':''}" data-logf="fat" data-logc="${c}" data-logv="${n}">${n}</button>`).join("")}</div></div>
     <div class="log-row"><div class="log-l"><b>관절 이상</b><span>없으면 비워둔다 · 부위와 0~10</span></div>
       <input class="log-in wide" type="text" data-logf="joint" data-logc="${c}" value="${escAttr(logVal(c,"joint"))}" placeholder="예: 무릎 3"></div>
+    <div class="log-row"><div class="log-l"><b>스트랩</b><span>쓴 종목 · 세트 · 중간에 감았으면 '중간' — 증량 판정과 무관</span></div>
+      <input class="log-in wide" type="text" data-logf="strap" data-logc="${c}" value="${escAttr(logVal(c,"strap"))}" placeholder="예: 데드 3세트 · 랫풀다운 4세트 중간"></div>
     <div class="log-row"><div class="log-l"><b>메모</b></div>
       <input class="log-in wide" type="text" data-logf="memo" data-logc="${c}" value="${escAttr(logVal(c,"memo"))}" placeholder="—"></div>
   </section>`;

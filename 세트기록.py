@@ -102,9 +102,35 @@ def cmd_pull(a):
     add = len(nk.keys() - ok.keys())
     chg = sum(1 for k in nk if k in ok and ok[k] != nk[k])
     gone = len(ok.keys() - nk.keys())
-    save(list(new))
+    try:
+        save(list(new))
+    except PermissionError:
+        print("세트기록 자동 저장: 세트기록.csv가 엑셀에 열려 있어 못 씀 — 엑셀을 닫고 '세트기록 받아 줘'라고 말하기")
+        return
     last = max((r["날짜"] for r in new), default="-")
-    print(f"세트기록 자동 저장: 세트기록.csv {len(new)}세트 (새 {add} · 바뀜 {chg} · 지움 {gone}) · 마지막 기록 {last}")
+    msg = f"세트기록 자동 저장: 세트기록.csv {len(new)}세트 (새 {add} · 바뀜 {chg} · 지움 {gone}) · 마지막 기록 {last}"
+    if write_view():
+        msg += " · 세트기록_보기.txt 갱신"
+    print(msg)
+
+
+VIEW = CSV.parent / "세트기록_보기.txt"
+
+
+def write_view():
+    """폴더에서 바로 열어 보는 비교 표 — show 전체 출력을 그대로 파일로(메모장에서 줄이 맞게 고정폭 글꼴 권장)"""
+    import io
+    from contextlib import redirect_stdout
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cmd_show(argparse.Namespace(day=None, ex=None))
+    try:
+        VIEW.write_text("세트 기록 비교 표 — 세션을 열 때마다 자동으로 새로 쓴다(직접 고치지 말 것)\n"
+                        "같은 그립 · 같은 방식(FST-7)끼리만 '지난번 대비'를 잰다. 진전 기준 = 추정 1RM\n"
+                        + buf.getvalue(), encoding="utf-8-sig")
+        return True
+    except PermissionError:
+        return False
 
 
 def fmt_set(r):

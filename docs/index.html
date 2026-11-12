@@ -200,6 +200,13 @@ details.slog summary b{color:var(--ink)}
 .sl-ok{font:inherit;font-weight:800;min-width:42px;padding:5px 0;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--mute);cursor:pointer}
 .sl-ok.on{background:var(--mp);border-color:var(--mp);color:var(--bg)}
 .sl-date{font-size:12px;color:var(--mute);margin:8px 0}
+.sl-prev{font-size:12.5px;line-height:1.45;margin:8px 0 0;color:var(--ink);font-variant-numeric:tabular-nums}
+.sl-prev b{color:var(--bp);font-weight:800}
+.sl-prev span{color:var(--mute);font-size:11.5px}
+.sl-prev.dim{color:var(--dim);margin-top:3px;font-size:11.5px}
+.sl-prev.dim b{color:var(--dim)}
+.sl-prev.tm{text-align:center;margin:4px 0 2px;font-size:13px;color:var(--mute)}
+.sl-prev.tm b{color:var(--ink)}
 #tm-slog{margin-top:10px;display:flex;flex-direction:column;align-items:center}
 #tm-slog .sl-row{justify-content:center}
 .tm-left{display:flex;align-items:center;gap:8px;min-width:0}
@@ -581,6 +588,39 @@ function sTags(day,round,names){
   finally{ VIEW_R=sv; reAlt(); }
   return out;
 }
+/* ── 지난번 · 지지난번 (2026-11-13 사용자 요청) ─────────────────────
+   종목 카드 = 지난번 전부 + 지지난번 한 줄(흐리게) · 타이머 = 지난번 그 세트 번호만.
+   '같은 것'은 PC 비교표와 같은 기준: 같은 일차 + 같은 이름 + 같은 꼬리표(그립 · FST-7, sTags).
+   꼬리표는 (일차, 사이클)마다 한 번 계산해 둔다 — sTags가 교대를 잠깐 얹었다 되돌리므로
+   그리는 도중이 아니라 그리기 전에(sWarm) 채운다. 폰 기록(wk-sets)만 본다 */
+const TAGC={};
+function tagsFor(day,round){
+  const k=day+"|"+round; if(TAGC[k]) return TAGC[k];
+  const d=D.back&&D.back[day]; if(!d||d.rest||!round) return (TAGC[k]={});
+  return (TAGC[k]=sTags(day,round,allEx(d).map(e=>e.name)));
+}
+function sWarm(day,date){
+  const c=cycDayOf(date); if(c) tagsFor(day,c.round);
+  for(const d in SETS) if(SETS[d].day===day&&SETS[d].round) tagsFor(day,SETS[d].round);
+}
+const sE1 = L => { let m=null; L.forEach(x=>{ const w=parseFloat(x.w), r=parseInt(x.r,10);
+  if(/^\s*\d+(\.\d+)?\s*$/.test(x.w||"")&&w>0&&r>0){ const v=w*(1+r/30); if(m==null||v>m) m=v; } }); return m; };
+function sHist(day,name,date,k){
+  const c=cycDayOf(date), cur=c?(tagsFor(day,c.round)[name]||""):"", out=[];
+  Object.keys(SETS).filter(d=>d<date&&SETS[d].day===day).sort().reverse().some(d=>{
+    const x=SETS[d], L=(x.ex&&x.ex[name])||[]; if(!L.some(y=>Object.keys(y).length)) return false;
+    if((tagsFor(day,x.round)[name]||"")!==cur) return false;
+    out.push({date:d, round:x.round, sets:L, e1:sE1(L)}); return out.length>=k; });
+  return out;
+}
+const sCellTxt = x => !x||!Object.keys(x).length ? "·" : x.r ? `${x.w||"?"}×${x.r}${x.ok?"✓":""}` : x.ok ? `${x.w||"?"}×목표✓` : `${x.w||"?"}×?`;
+function sHistHTML(day,name,date){
+  const H=sHist(day,name,date,2), tag=(()=>{ const c=cycDayOf(date); return c?(tagsFor(day,c.round)[name]||""):""; })();
+  if(!H.length) return `<div class="sl-prev dim">지난번 기록 없음${tag?` — ${esc(tag)} 차례는 이번이 처음`:""}</div>`;
+  const line=(h,lab,cls)=>`<div class="sl-prev${cls}"><b>${lab}</b> <span>(${+h.date.slice(5,7)}/${+h.date.slice(8)} · ${h.round||"?"}사이클)</span> ${
+    h.sets.map(sCellTxt).map(esc).join(" · ")}${h.e1?` · 1RM ${h.e1.toFixed(1)}`:""}</div>`;
+  return line(H[0],"지난번","")+(H[1]?line(H[1],"지지난번"," dim"):"");
+}
 function sRowsOf(d){ const x=SETS[d], out=[]; if(!x) return out;
   const tg=sTags(x.day,x.round,Object.keys(x.ex));
   for(const n in x.ex){ const t=tg[n], nm=t?`${n} [${t}]`:n;
@@ -637,7 +677,7 @@ const sDone = (date,name) => sGet(date,name).filter(x=>x.ok||x.r).length;
 function setLogHTML(e,n){
   if(mode!=="back"||!n||!D.back[tab]) return "";
   const date=logDateFor(tab), pw=tmW(e);
-  return `<details class="slog" data-sn="${escAttr(e.name)}"${SOPEN.has(e.name)?" open":""}><summary>세트 기록 · <b class="num">${sDone(date,e.name)}/${n}</b></summary>${
+  return sHistHTML(tab,e.name,date)+`<details class="slog" data-sn="${escAttr(e.name)}"${SOPEN.has(e.name)?" open":""}><summary>세트 기록 · <b class="num">${sDone(date,e.name)}/${n}</b></summary>${
     sBox(e,date,tab,pw,sRowsHTML(e,0,n,date,pw,"sl"))}</details>`;
 }
 /* PC로 — 탭 구분 한 줄 = 한 세트. Claude가 받아서 세트기록.csv에 합친다(같은 날짜 · 종목 · 세트는 덮어씀) */
@@ -926,6 +966,7 @@ function dayHTML(d,week){
   const prefix=mode+"|"+tab;
   const on=rampOn(), dl=dlOn();
   const S = e => effSets(e,week);
+  if(mode==="back"&&D.back[tab]===d) sWarm(tab,logDateFor(tab));
   const all=allEx(d), done=all.reduce((a,e)=>a+S(e),0);
   /* 타이머가 실제로 걸 수 있는 종목 — 수행 초가 있어야 한다 */
   const timed = allEx(d).filter(e=>e.s!==0&&S(e)>0&&e.wk>0);
@@ -2088,10 +2129,12 @@ function tmSlog(s){
   const el=document.getElementById("tm-slog");
   const on = TM.date&&s.e&&s.p!=="prep"&&!s.ramp&&!s.wu&&!s.wt&&!s.e.of;
   const key = on ? s.e.name+"|"+s.set+"|"+JSON.stringify(sGet(TM.date,s.e.name)[s.set-1]||{}) : "";
+  const H = on ? sHist(TM.tab,s.e.name,TM.date,1)[0] : null, hx = H ? H.sets[s.set-1] : null;
+  const prev = on ? `<div class="sl-prev tm">${H?`지난번 ${s.set}세트: <b>${esc(sCellTxt(hx))}</b> <span>(${+H.date.slice(5,7)}/${+H.date.slice(8)})</span>`:"지난번 기록 없음"}</div>` : "";
   if(el.dataset.k===key) return;
   const a=document.activeElement; if(a&&el.contains(a)&&a.tagName==="INPUT") return;
   el.dataset.k=key;
-  el.innerHTML = on ? `<div class="tm-rec-h">세트 기록 · ${s.set}/${s.sets}${s.p==="rest"?" · 방금 세트":""}</div>`+
+  el.innerHTML = on ? `<div class="tm-rec-h">세트 기록 · ${s.set}/${s.sets}${s.p==="rest"?" · 방금 세트":""}</div>`+prev+
     sBox(s.e,TM.date,TM.tab,tmW(s.e),sRowsHTML(s.e,s.set-1,s.set,TM.date,tmW(s.e),"tsl")) : "";
 }
 function tmMiniPaint(){
@@ -2198,6 +2241,7 @@ function tmRun(st,title){
   TM={st:st,i:0,endAt:Date.now()+st[0].t*1000,rest:0,run:true,title:title,wk:{},
       tab:tab, week:week, date:(mode==="back"&&D.back[tab]&&!D.back[tab].rest)?logDateFor(tab):null, min:false};
   document.getElementById("tm-mini").hidden=true;
+  if(TM.date) sWarm(TM.tab,TM.date);
   document.getElementById("tm").hidden=false;
   document.body.style.overflow="hidden";
   tmLock(); tmPaint(); tmMedia(); tmEnter(); tmLeft=-1;

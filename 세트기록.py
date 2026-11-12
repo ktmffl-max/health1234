@@ -204,11 +204,79 @@ def write_view():
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A2"
+    charts(wb, bl)
     try:
         wb.save(VIEW)
         return True
     except PermissionError:
         return False
+
+
+def charts(wb, bl):
+    """'그래프' 시트 — 블록(일차 · 종목 · 그립 · 방식)마다 작은 선 그래프 하나, 2열 격자.
+    지표 하나 · 축 하나: 추정 1RM(kg). 핀 무게라 1RM이 없는 종목은 총횟수. 두 번 이상 기록된 블록만.
+    점 데이터는 숨긴 '_데이터' 시트에. y축은 0이 아니라 값 근처에서 시작해야 변화가 보인다"""
+    from openpyxl.chart import LineChart, Reference
+    from openpyxl.chart.label import DataLabel, DataLabelList
+    from openpyxl.chart.layout import Layout, ManualLayout
+    from openpyxl.chart.shapes import GraphicalProperties
+    from openpyxl.drawing.line import LineProperties
+    from openpyxl.styles import Font
+    gs = wb.create_sheet("그래프")
+    ds = wb.create_sheet("_데이터")
+    ds.sheet_state = "hidden"
+    BLUE = "2A78D6"
+    use = [b for b in bl if len(b["sess"]) >= 2]
+    gs["A1"] = ("종목별 흐름 — 추정 1RM(핀 무게 종목은 총횟수) · 같은 일차 · 같은 그립 · 같은 방식끼리 · "
+                f"두 번 이상 기록된 {len(use)}개" + (f" (한 번뿐인 {len(bl) - len(use)}개는 다음 기록부터)" if len(bl) > len(use) else ""))
+    gs["A1"].font = Font(bold=True, size=11)
+    if not use:
+        gs["A3"] = "아직 같은 조건으로 두 번 이상 기록된 종목이 없다 — 다음 사이클부터 선이 생긴다"
+        return
+    dc = 1
+    for i, b in enumerate(use):
+        e1 = all(s["e1"] for s in b["sess"])
+        key, label, unit = ("e1", "추정 1RM", "kg") if e1 else ("tot", "총횟수", "회")
+        ds.cell(1, dc, "날짜")
+        ds.cell(1, dc + 1, label)
+        for j, s in enumerate(b["sess"], 2):
+            ds.cell(j, dc, f"{s['dt']} {s['cyc']}사이클")
+            v = s[key]
+            ds.cell(j, dc + 1, round(v, 1) if v is not None else None)
+        n = len(b["sess"])
+        ch = LineChart()
+        grip = f" ‹{b['grip']}›" if b["grip"] else ""
+        ch.title = f"{b['day']}일차 · {b['base']}{grip} — {label}"
+        ch.add_data(Reference(ds, min_col=dc + 1, min_row=1, max_row=n + 1), titles_from_data=True)
+        ch.set_categories(Reference(ds, min_col=dc, min_row=2, max_row=n + 1))
+        sr = ch.series[0]
+        sr.graphicalProperties.line.solidFill = BLUE
+        sr.graphicalProperties.line.width = 25400          # 2pt
+        sr.marker.symbol = "circle"
+        sr.marker.size = 8
+        sr.marker.graphicalProperties.solidFill = BLUE
+        sr.marker.graphicalProperties.line.solidFill = "FFFFFF"
+        sr.smooth = False
+        ch.legend = None                                    # 선 하나 — 제목이 이름이다
+        vals = [s[key] for s in b["sess"] if s[key] is not None]
+        lo, hi = min(vals), max(vals)
+        pad = max((hi - lo) * 0.25, 1)
+        ch.y_axis.scaling.min = max(0, int(lo - pad))
+        ch.y_axis.scaling.max = int(hi + pad) + 1
+        ch.y_axis.title = unit
+        ch.y_axis.majorGridlines.spPr = GraphicalProperties(ln=LineProperties(solidFill="E3E5E8", w=6350))
+        ch.y_axis.majorUnit = max(1, round((ch.y_axis.scaling.max - ch.y_axis.scaling.min) / 5))
+        # 숫자는 마지막 점에만 — 지금 값이 어디인지
+        off = dict(showSerName=False, showCatName=False, showLegendKey=False, showPercent=False, showBubbleSize=False)
+        dl = DataLabel(idx=n - 1, showVal=True, dLblPos="t", **off)
+        sr.dLbls = DataLabelList(dLbl=[dl], showVal=False, **off)
+        ch.x_axis.delete = False
+        ch.y_axis.delete = False
+        ch.y_axis.number_format = "0"
+        ch.width, ch.height = 15, 7.5
+        ch.layout = Layout(manualLayout=ManualLayout(x=0.08, y=0.13, w=0.88, h=0.68))
+        gs.add_chart(ch, f"{'A' if i % 2 == 0 else 'J'}{3 + (i // 2) * 16}")
+        dc += 3
 
 
 def fmt_set(r):

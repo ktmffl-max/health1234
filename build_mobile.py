@@ -1719,6 +1719,27 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .wk-ed.edited{color:var(--bp);border-color:var(--bp)}
 .wk-ed .w-input{width:56px;font-size:12px;padding:2px 5px}
 #tm-wk{margin-top:10px}
+/* 세트 기록 (2026-11-13) */
+details.slog{margin:8px 0 0;border-top:1px dashed var(--line);padding-top:6px}
+details.slog summary{font-size:12px;font-weight:700;color:var(--mute);cursor:pointer}
+details.slog summary b{color:var(--ink)}
+.sl-row{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:13px}
+.sl-n{width:18px;text-align:right;font-weight:800;color:var(--mute);font-variant-numeric:tabular-nums}
+.sl-row input{font:inherit;font-size:15px;padding:5px 7px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--ink);font-variant-numeric:tabular-nums}
+.sl-w{width:110px}.sl-r{width:62px}
+.sl-row i{font-style:normal;color:var(--mute)}
+.sl-ok{font:inherit;font-weight:800;min-width:42px;padding:5px 0;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--mute);cursor:pointer}
+.sl-ok.on{background:var(--mp);border-color:var(--mp);color:var(--bg)}
+.sl-date{font-size:12px;color:var(--mute);margin:8px 0}
+#tm-slog{margin-top:10px;display:flex;flex-direction:column;align-items:center}
+#tm-slog .sl-row{justify-content:center}
+#tm-min{font:inherit;font-size:13px;font-weight:700}
+#tm-mini{position:fixed;left:16px;right:16px;bottom:14px;z-index:150;font:inherit;font-size:14px;font-weight:800;
+  padding:13px 16px;border:0;border-radius:999px;background:var(--ink);color:var(--bg);box-shadow:0 4px 18px rgba(0,0,0,.25);
+  font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+#tm-mini[hidden]{display:none}
+.cal-cell{position:relative}
+.cal-cell .sl-dot{position:absolute;top:4px;right:5px;width:6px;height:6px;border-radius:50%;background:var(--mp)}
 .bigw.edited b{color:var(--bp)}
 .ovnote{display:block;font-size:10px;font-weight:700;color:var(--bp);margin-top:5px;line-height:1.3}
 .w-input{font:inherit;font-weight:700;background:var(--raised);color:var(--ink);
@@ -1879,6 +1900,7 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 <div id="tm" hidden>
   <div class="tm-top"><span id="tm-ctx"></span><span class="tm-btns"
     ><button id="tm-mute" aria-label="음성 켜기/끄기">&#128266;</button
+    ><button id="tm-min" aria-label="타이머는 돌려 둔 채 잠깐 나가기">&#8601; 나가기</button
     ><button id="tm-x" aria-label="타이머 닫기">&#10005;</button></span></div>
   <div class="tm-body">
     <h3 id="tm-name"></h3>
@@ -1887,6 +1909,7 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
     <p id="tm-set"></p>
     <div id="tm-wk"></div>
     <div id="tm-rec"></div>
+    <div id="tm-slog"></div>
   </div>
   <div class="tm-ctl">
     <button id="tm-prev">&#9664; 이전</button>
@@ -1895,6 +1918,7 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
   </div>
   <p class="tm-up" id="tm-up"></p>
 </div>
+<button id="tm-mini" hidden></button>
 <script>
 const D = /*__DATA__*/ null;
 
@@ -2036,6 +2060,66 @@ function setLog(c,f,v){
   if(v===xlVal(c,f)) delete LOG[c][f]; else LOG[c][f]=v;
   if(!Object.keys(LOG[c]).length) delete LOG[c];
   saveLog();
+}
+/* ── 세트 기록 (2026-11-13 사용자 요청) ─────────────────────────────
+   날짜마다 · 종목마다 · 세트마다 무게 · 횟수 · 달성(✓). 이 폰에만 저장된다 —
+   'PC로 보낼 세트 기록 복사'로 텍스트를 뽑아 Claude에게 붙여 넣으면 PC의 세트기록.csv에 쌓인다.
+   ✓만 누르고 횟수를 비우면 '목표 범위 달성'이다. 무게를 비우고 ✓를 누르면 그날 계획 무게가 들어간다 */
+const SKEY="wk-sets"; let SETS={};
+try{ const o=JSON.parse(localStorage.getItem(SKEY)||"null"); if(o&&typeof o==="object") SETS=o; }catch(e){}
+function sSave(){ try{ localStorage.setItem(SKEY,JSON.stringify(SETS)); }catch(e){} }
+let LOGDATE=null;              /* 달력 칸을 눌러 들어오면 {day, date} */
+const SOPEN=new Set();         /* 펼쳐 둔 종목 — 다시 그려도 펼친 채로 */
+const sGet = (date,name) => { const x=SETS[date]; return (x&&x.ex&&x.ex[name])||[]; };
+function sPut(date,day,name,i,patch){
+  const x=SETS[date]||(SETS[date]={ex:{}}); x.day=day;
+  const c=cycDayOf(date); if(c) x.round=c.round;
+  const L=x.ex[name]||(x.ex[name]=[]); while(L.length<=i) L.push({});
+  Object.assign(L[i],patch);
+  for(const f in L[i]) if(L[i][f]===""||L[i][f]==null) delete L[i][f];
+  while(L.length&&!Object.keys(L[L.length-1]).length) L.pop();
+  if(!L.length) delete x.ex[name];
+  if(!Object.keys(x.ex).length) delete SETS[date];
+  sSave();
+}
+const sPlan = w => String(w||"").replace(/\s*kg$/,"");
+function sToggle(date,day,name,i,pw){
+  const s=sGet(date,name)[i]||{};
+  if(s.ok) sPut(date,day,name,i,{ok:""});
+  else sPut(date,day,name,i,{ok:1, w:s.w||sPlan(pw)});
+}
+/* 그 일차의 기록 날짜 — 달력에서 고른 날 · 아니면 오늘부터 거꾸로 가장 가까운 그 일차 · 없으면 앞으로 */
+function logDateFor(day){
+  if(LOGDATE&&LOGDATE.day===day) return LOGDATE.date;
+  const t=ymd(new Date());
+  for(let i=0;i<CLEN;i++){ const a=dayAdd(t,-i), c=cycDayOf(a); if(c&&c.day===day) return a; }
+  for(let i=1;i<=CLEN;i++){ const a=dayAdd(t,i), c=cycDayOf(a); if(c&&c.day===day) return a; }
+  return t;
+}
+function sRowsHTML(e,i0,i1,date,pw,a){
+  const L=sGet(date,e.name); let h="";
+  for(let i=i0;i<i1;i++){ const x=L[i]||{};
+    h+=`<div class="sl-row"><span class="sl-n">${i+1}</span>
+      <input class="sl-w" type="text" inputmode="decimal" data-${a}="w" data-si="${i}" value="${escAttr(x.w||"")}" placeholder="${escAttr(sPlan(pw))}"><i>kg</i>
+      <input class="sl-r" type="text" inputmode="numeric" data-${a}="r" data-si="${i}" value="${escAttr(x.r||"")}" placeholder="${escAttr(e.r||"")}"><i>회</i>
+      <button class="sl-ok${x.ok?" on":""}" data-${a}="ok" data-si="${i}">&#10003;</button></div>`; }
+  return h;
+}
+const sBox = (e,date,day,pw,inner) => `<div class="sl-box" data-sn="${escAttr(e.name)}" data-sd="${date}" data-sday="${escAttr(day)}" data-spw="${escAttr(pw)}">${inner}</div>`;
+const sDone = (date,name) => sGet(date,name).filter(x=>x.ok||x.r).length;
+function setLogHTML(e,n){
+  if(mode!=="back"||!n||!D.back[tab]) return "";
+  const date=logDateFor(tab), pw=tmW(e);
+  return `<details class="slog" data-sn="${escAttr(e.name)}"${SOPEN.has(e.name)?" open":""}><summary>세트 기록 · <b class="num">${sDone(date,e.name)}/${n}</b></summary>${
+    sBox(e,date,tab,pw,sRowsHTML(e,0,n,date,pw,"sl"))}</details>`;
+}
+/* PC로 — 탭 구분 한 줄 = 한 세트. Claude가 받아서 세트기록.csv에 합친다(같은 날짜 · 종목 · 세트는 덮어씀) */
+function sExport(){
+  const out=["#세트기록 v1","날짜\t사이클\t일차\t종목\t세트\t무게\t횟수\t달성"];
+  Object.keys(SETS).sort().forEach(d=>{ const x=SETS[d];
+    for(const n in x.ex) x.ex[n].forEach((s,i)=>{ if(!Object.keys(s).length) return;
+      out.push([d,x.round||"",x.day||"",n,i+1,s.w||"",s.r||"",s.ok?"O":""].join("\t")); }); });
+  return out.join("\n");
 }
 const isDone = v => v===""||/^[oO○]$/.test(v);        /* 엑셀: OR(칸="",칸="O") */
 const missed = (k,c) => !isDone(logVal(c,k));
@@ -2230,6 +2314,7 @@ function exHTML(e,prefix,sets,timed){
     ${pctRampHTML(e,prefix,n)}
     ${micHTML(e,key,w)}
     ${e.trk&&LIFT[e.lift]&&!dlOn()?liftLogHTML(e.lift,week):""}
+    ${setLogHTML(e,n)}
     ${e.memo?`<div class="ex-memo">${esc(e.memo)}</div>`:""}
     ${e.alt?`<details><summary>대체 종목</summary><p>${esc(e.alt)}</p></details>`:""}</article>`;
 }
@@ -2348,7 +2433,10 @@ function dayHTML(d,week){
         tSets!==done?` <i>(시간 없는 ${done-tSets}세트 제외)</i>`:""}</button>` : "";
   const wst=wuSteps(d), wsec=wst.reduce((a,x)=>a+x.t,0);
   const wgo = wst.length ? `<button class="day-go wu-go" data-wtm="1">&#9654; 웜업 타이머 · ${wuItems(d).length}항목 · 약 ${Math.round(wsec/60)}분</button>` : "";
-  return `<h2 class="daytitle">${esc(d.t)}</h2><p class="daysub">${esc(d.sub)}</p>${bar}${wgo}${go}
+  const ld = mode==="back"&&D.back[tab] ? logDateFor(tab) : null;
+  const sl = ld ? `<p class="sl-date">세트 기록 날짜 · <b>${+ld.slice(5,7)}/${+ld.slice(8)}(${DOWK(ld)})</b> — 다른 날이면 달력에서 그 칸을 누른다 ·
+    <button class="tm-go" id="sl-copy">PC로 보낼 세트 기록 복사</button></p>` : "";
+  return `<h2 class="daytitle">${esc(d.t)}</h2><p class="daysub">${esc(d.sub)}</p>${bar}${wgo}${go}${sl}
     ${cards}${notesHTML(d.pre)}${body}
     <div class="total"><span>세트 합계</span><b class="num">${done!==d.total?`${done} <i style="font-style:normal;font-weight:600;color:var(--mute);font-size:13px">/ 설계 ${d.total}</i>`:d.total}</b></div>${holdBox}${notesHTML(d.notes)}`;
 }
@@ -2587,8 +2675,8 @@ function backCalHTML(){
     /* 사이클 첫날 칸에 그 사이클의 중량 칸을 적는다 */
     const badge = w && c && c.day===D.backOrder[0] ? (w.deload?"디로드":`${w.wk}칸`) : "";
     cells.push(`<div class="cal-cell${c?"":" blank"}${key===tKey?" today":""}${rest?" rest":""}${d.getDay()===0?" sun":""}"
-      ${c&&!rest?`data-bcal="${c.day}"`:""} style="${acc?`--acc:${acc}`:""}">
-      <b>${dn}</b>${c?`<i style="color:${acc||(rest?"var(--mute)":"var(--ink)")}">${c.day}일차</i>
+      ${c&&!rest?`data-bcal="${c.day}" data-bdate="${key}"`:""} style="${acc?`--acc:${acc}`:""}">
+      ${SETS[key]?`<span class="sl-dot"></span>`:""}<b>${dn}</b>${c?`<i style="color:${acc||(rest?"var(--mute)":"var(--ink)")}">${c.day}일차</i>
         <span>${esc(rest?"휴식":cShort(c.day))}</span>`:""}${badge?`<em>${badge}</em>`:""}</div>`);
   }
 
@@ -3420,6 +3508,7 @@ function tmPaint(){
   if(knE&&knE.kn&&!s.wt&&!s.ramp) document.getElementById("tm-set").insertAdjacentHTML("beforeend",
     `<br><span class="tm-kn">⚠ ${esc(knE.kn)}</span>`);
   tmRecSet(tmRec(s.e));
+  tmSlog(s);
   /* 수행 시간 — 운동 중이면 지금 세트, 준비 · 휴식 중이면 곧 시작할 세트의 종목 */
   const wt = s.p==="work" ? s.e : (nx&&nx.p==="work" ? nx.e : null);
   tmSet("tm-wk", wt&&wt.wk0 ? tmWkHTML(wt) : "");
@@ -3457,7 +3546,50 @@ function tmWkAdj(d){
   }
   tmLeft=-1; tmPaint(); if(TM.run) tmSchedule();
 }
+/* 나가 있는 동안(TM.min) 다른 탭을 봐도 타이머는 시작한 일차 · 칸으로 그린다 */
 function tmLoop(){
+  if(TM&&TM.min&&(tab!==TM.tab||week!==TM.week)){
+    const t=tab, w=week; tab=TM.tab; week=TM.week;
+    try{ tmLoop0(); } finally { tab=t; week=w; }
+  } else tmLoop0();
+  if(TM&&TM.min) tmMiniPaint();
+}
+/* 세트 기록 한 줄 — 운동 중이면 지금 세트, 휴식이면 방금 끝낸 세트. 치는 중이면 안 건드린다 */
+function tmSlog(s){
+  const el=document.getElementById("tm-slog");
+  const on = TM.date&&s.e&&s.p!=="prep"&&!s.ramp&&!s.wu&&!s.wt&&!s.e.of;
+  const key = on ? s.e.name+"|"+s.set+"|"+JSON.stringify(sGet(TM.date,s.e.name)[s.set-1]||{}) : "";
+  if(el.dataset.k===key) return;
+  const a=document.activeElement; if(a&&el.contains(a)&&a.tagName==="INPUT") return;
+  el.dataset.k=key;
+  el.innerHTML = on ? `<div class="tm-rec-h">세트 기록 · ${s.set}/${s.sets}${s.p==="rest"?" · 방금 세트":""}</div>`+
+    sBox(s.e,TM.date,TM.tab,tmW(s.e),sRowsHTML(s.e,s.set-1,s.set,TM.date,tmW(s.e),"tsl")) : "";
+}
+function tmMiniPaint(){
+  const b=document.getElementById("tm-mini");
+  if(!TM||!TM.min){ b.hidden=true; return; }
+  const s=TM.st[TM.i], left=TM.run?Math.max(0,Math.ceil((TM.endAt-Date.now())/1000)):Math.ceil(TM.rest/1000);
+  const t=`⏱ ${mmss(left)} · ${TM.run?PH[s.p][0]:"일시정지"} · ${s.e.name} ${s.set}/${s.sets} — 눌러서 타이머로`;
+  if(b.textContent!==t) b.textContent=t;
+}
+function tmMin(){
+  if(!TM) return;
+  const s=TM.st[TM.i], nm=s&&s.e?(s.e.of||s.e).name:null;
+  TM.min=true; document.getElementById("tm").hidden=true; document.body.style.overflow="";
+  tab=TM.tab; week=TM.week; if(TM.date) LOGDATE={day:TM.tab,date:TM.date};
+  if(nm) SOPEN.add(nm);
+  render(); tmMiniPaint(); document.getElementById("tm-mini").hidden=false;
+  const d=nm?[...document.querySelectorAll("details.slog")].find(x=>x.dataset.sn===nm):null;
+  if(d) d.scrollIntoView({block:"center"});
+}
+function tmMax(){
+  if(!TM) return;
+  TM.min=false; document.getElementById("tm-mini").hidden=true;
+  if(tab!==TM.tab||week!==TM.week){ tab=TM.tab; week=TM.week; render(); }
+  document.getElementById("tm").hidden=false; document.body.style.overflow="hidden";
+  document.getElementById("tm-slog").dataset.k=""; tmLeft=-1; tmPaint();
+}
+function tmLoop0(){
   if(!TM||!TM.run) return;
   const now=Date.now(); let moved=false;
   while(TM.endAt<=now&&TM.i<TM.st.length-1){ TM.i++; TM.endAt+=TM.st[TM.i].t*1000; moved=true; }
@@ -3522,7 +3654,9 @@ function wuSteps(d){
 function tmRun(st,title){
   if(!st.length) return;
   tmAudio();
-  TM={st:st,i:0,endAt:Date.now()+st[0].t*1000,rest:0,run:true,title:title,wk:{}};
+  TM={st:st,i:0,endAt:Date.now()+st[0].t*1000,rest:0,run:true,title:title,wk:{},
+      tab:tab, week:week, date:(mode==="back"&&D.back[tab]&&!D.back[tab].rest)?logDateFor(tab):null, min:false};
+  document.getElementById("tm-mini").hidden=true;
   document.getElementById("tm").hidden=false;
   document.body.style.overflow="hidden";
   tmLock(); tmPaint(); tmMedia(); tmEnter(); tmLeft=-1;
@@ -3545,6 +3679,7 @@ function tmPause(){
 }
 function tmClose(){
   clearInterval(tmInt); tmInt=null; TM=null; tmLeft=-1; tmUnlock(); tmHush(); tmDrop();
+  document.getElementById("tm-mini").hidden=true;
   /* 유지음은 끊는다 — 타이머를 닫고도 계속 흘리면 배터리만 먹는다.
      다만 '완료' 말소리가 남아 있을 수 있어 2.5초 뒤에 끈다. */
   clearTimeout(tmIdle);
@@ -3599,7 +3734,13 @@ function bindEdits(){
   document.querySelectorAll("[data-hcal]").forEach(el=>{ el.onclick=()=>{
     tab=el.dataset.hcal; render(); window.scrollTo({top:0}); }; });
   document.querySelectorAll("[data-bcal]").forEach(el=>{ el.onclick=()=>{
+    LOGDATE = el.dataset.bdate ? {day:el.dataset.bcal, date:el.dataset.bdate} : null;
     tab=el.dataset.bcal; render(); window.scrollTo({top:0}); }; });
+  const slc=document.getElementById("sl-copy");
+  if(slc) slc.onclick=()=>{
+    const text=sExport(), n=text.split("\n").length-2;
+    const ok=()=>{ slc.textContent=`복사됨 · ${n}세트`; setTimeout(()=>{ slc.textContent="PC로 보낼 세트 기록 복사"; },1800); };
+    try{ navigator.clipboard.writeText(text).then(ok,()=>{ slc.textContent="복사 실패"; }); }catch(e){ slc.textContent="복사 실패"; } };
   document.querySelectorAll("[data-setday]").forEach(el=>{ el.onclick=()=>{
     const v=el.dataset.setday;
     if(v==="__xl"){ ANCHOR=D.anchor; try{ localStorage.removeItem(AKEY); }catch(e){} }
@@ -3725,7 +3866,7 @@ function render(){
   reAlt();
   const nav=document.getElementById("nav");
   nav.innerHTML=tabsFor(mode).map(([k,l])=>`<button data-k="${k}" aria-pressed="${k===tab}">${l}</button>`).join("");
-  nav.querySelectorAll("button").forEach(b=>b.onclick=()=>{tab=b.dataset.k;render();window.scrollTo({top:0});});
+  nav.querySelectorAll("button").forEach(b=>b.onclick=()=>{tab=b.dataset.k;LOGDATE=null;render();window.scrollTo({top:0});});
   /* 사이클 바는 양쪽 모드에 다 띄운다 — 중량 사다리는 재택 · 복귀가 같은 칸을 쓴다.
      다른 것은 올리는 속도뿐이다(재택 10일 주기마다 · 복귀 매주 한 칸). */
   document.getElementById("weekbar").style.display = "flex";
@@ -3799,6 +3940,37 @@ document.getElementById("tm").addEventListener("change",ev=>{
 document.getElementById("tm").addEventListener("keydown",ev=>{
   if(ev.key==="Enter"&&ev.target.dataset&&ev.target.dataset.tlogrep) ev.target.blur(); });
 document.getElementById("tm-x").onclick=tmClose;
+document.getElementById("tm-min").onclick=tmMin;
+document.getElementById("tm-mini").onclick=tmMax;
+function slCount(box){
+  const det=box.closest("details.slog"); if(!det) return;
+  const b=det.querySelector("summary b"); if(b) b.textContent=sDone(box.dataset.sd,box.dataset.sn)+"/"+box.querySelectorAll(".sl-row").length;
+}
+function slClick(ev,a){
+  const btn=ev.target.closest(`[data-${a}="ok"]`); if(!btn) return false;
+  const box=btn.closest(".sl-box"), i=+btn.dataset.si, B=box.dataset;
+  sToggle(B.sd,B.sday,B.sn,i,B.spw);
+  const x=sGet(B.sd,B.sn)[i]||{};
+  btn.classList.toggle("on",!!x.ok);
+  const w=box.querySelector(`[data-${a}="w"][data-si="${i}"]`); if(w&&document.activeElement!==w) w.value=x.w||"";
+  slCount(box); return true;
+}
+function slChange(ev,a){
+  const el=ev.target, f=el.dataset&&el.dataset[a]; if(f!=="w"&&f!=="r") return false;
+  const box=el.closest(".sl-box"), B=box.dataset;
+  sPut(B.sd,B.sday,B.sn,+el.dataset.si,{[f]:el.value.replace(/\s*kg$/i,"").trim()});
+  slCount(box); return true;
+}
+const appEl=document.getElementById("app");
+appEl.addEventListener("click",ev=>{ if(slClick(ev,"sl")) ev.preventDefault(); });
+appEl.addEventListener("change",ev=>{ slChange(ev,"sl"); });
+appEl.addEventListener("keydown",ev=>{ if(ev.key==="Enter"&&ev.target.dataset&&ev.target.dataset.sl) ev.target.blur(); });
+appEl.addEventListener("toggle",ev=>{ const d=ev.target;
+  if(d.classList&&d.classList.contains("slog")){ if(d.open) SOPEN.add(d.dataset.sn); else SOPEN.delete(d.dataset.sn); } },true);
+const tmEl=document.getElementById("tm");
+tmEl.addEventListener("click",ev=>{ slClick(ev,"tsl"); });
+tmEl.addEventListener("change",ev=>{ slChange(ev,"tsl"); });
+tmEl.addEventListener("keydown",ev=>{ if(ev.key==="Enter"&&ev.target.dataset&&ev.target.dataset.tsl) ev.target.blur(); });
 document.getElementById("tm-play").onclick=tmPause;
 document.getElementById("tm-next").onclick=()=>tmGo(1);
 document.getElementById("tm-prev").onclick=()=>tmGo(-1);

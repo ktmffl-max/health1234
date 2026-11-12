@@ -113,31 +113,105 @@ def fmt_set(r):
     return f"{w}×{reps}" + ("" if r["달성"] == "O" else "(미체크)" if r["횟수"] else "")
 
 
+import unicodedata
+
+DOW = "월화수목금토일"
+
+
+def _w(t):
+    """터미널 표시 폭 — 한글은 두 칸"""
+    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in t)
+
+
+def _pad(t, n, right=False):
+    sp = " " * max(0, n - _w(t))
+    return sp + t if right else t + sp
+
+
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _cell(r):
+    """한 세트 칸 — 52×9 · 달성(✓)이면 뒤에 ✓ · 횟수 없이 ✓만이면 52×목표"""
+    w = r["무게"] or "?"
+    if r["횟수"]:
+        return f"{w}×{r['횟수']}" + ("✓" if r["달성"] == "O" else "")
+    return f"{w}×목표✓" if r["달성"] == "O" else f"{w}×?"
+
+
+def _arrow(now, before, unit=""):
+    if now is None or before is None:
+        return "—"
+    d = now - before
+    if abs(d) < 1e-9:
+        return "="
+    return f"{'▲' if d > 0 else '▼'}{abs(d):g}{unit}"
+
+
 def cmd_show(a):
     rows = [r for r in load()
             if (not a.day or r["일차"] == a.day) and (not a.ex or a.ex in r["종목"])]
     if not rows:
-        print("해당 기록 없음" + ("" if CSV.exists() else " — 세트기록.csv가 아직 없다(앱에서 복사해 붙여 넣기부터)"))
+        print("해당 기록 없음" + ("" if CSV.exists() else " — 세트기록.csv가 아직 없다"))
         return
     by_ex = OrderedDict()
     for r in sorted(rows, key=lambda r: (r["일차"], r["날짜"], int(r["세트"] or 0))):
         by_ex.setdefault((r["일차"], r["종목"]), OrderedDict()).setdefault(
-            (r["날짜"], r["사이클"]), []).append(r)
+            (r["날짜"], r["사이클"]), {})[int(r["세트"] or 0)] = r
     for (day, ex), sess in by_ex.items():
-        print(f"\n■ {day}일차 · {ex}")
-        prev = None
+        n = max(max(v) for v in sess.values())
+        cw = max([6] + [_w(_cell(r)) for v in sess.values() for r in v.values()])
+        head = (_pad("날짜", 10) + _pad("사이클", 7) + "│ " + " ".join(_pad(f"{k}세트", cw) for k in range(1, n + 1))
+                + " │ " + _pad("추정1RM", 8, True) + _pad("최고", 6, True) + _pad("총횟수", 8, True) + _pad("볼륨", 8, True) + " │ 지난번 대비")
+        print()
+        print(f"■ {day}일차 · {ex}")
+        print("  " + head)
+        print("  " + "─" * _w(head))
+        prev = first = None
         for (d, cyc), sets in sess.items():
-            vol = sum(float(s["무게"]) * float(s["횟수"]) for s in sets
-                      if s["무게"].replace(".", "", 1).isdigit() and s["횟수"].isdigit())
-            top = max((float(s["무게"]) for s in sets if s["무게"].replace(".", "", 1).isdigit()), default=None)
-            trend = ""
-            if top is not None and prev is not None:
-                dd = top - prev
-                trend = f"  ({'+' if dd > 0 else ''}{dd:g}kg)" if dd else "  (=)"
-            if top is not None:
-                prev = top
-            line = " · ".join(fmt_set(s) for s in sets)
-            print(f"  {d} [{cyc or '-'}사이클]  {line}" + (f"  | 볼륨 {vol:g}" if vol else "") + trend)
+            ws = [_num(r["무게"]) for r in sets.values()]
+            top = max([x for x in ws if x is not None], default=None)
+            reps = [int(r["횟수"]) for r in sets.values() if r["횟수"].isdigit()]
+            tot = sum(reps) if reps else None
+            vol = sum(_num(r["무게"]) * int(r["횟수"]) for r in sets.values()
+                      if _num(r["무게"]) is not None and r["횟수"].isdigit()) or None
+            # 핀 · 손목 단계처럼 숫자가 아닌 무게 — 첫 세트 글자 그대로 비교한다
+            raw = next((r["무게"] for r in sets.values() if r["무게"]), "")
+            # 추정 1RM(Epley) — 그날 가장 좋은 세트. 무게와 횟수를 숫자 하나로: 강해졌으면 오른다
+            e1 = max((_num(r["무게"]) * (1 + int(r["횟수"]) / 30) for r in sets.values()
+                      if _num(r["무게"]) and r["횟수"].isdigit()), default=None)
+            cur = {"top": top, "tot": tot, "vol": vol, "raw": raw, "e1": e1}
+            dt = f"{int(d[5:7])}/{int(d[8:])}"
+            try:
+                import datetime
+                dt += f"({DOW[datetime.date.fromisoformat(d).weekday()]})"
+            except ValueError:
+                pass
+            cells = " ".join(_pad(_cell(sets[k]) if k in sets else "·", cw) for k in range(1, n + 1))
+            if prev:
+                wcmp = (_arrow(top, prev['top'], 'kg') if top is not None and prev['top'] is not None
+                        else "=" if raw == prev['raw'] else f"{prev['raw'] or '?'} → {raw or '?'}")
+                e1c = _arrow(round(e1, 1) if e1 else None, round(prev['e1'], 1) if prev['e1'] else None)
+                cmp = (f"1RM {e1c} · " if e1 and prev['e1'] else "") + f"무게 {wcmp} · 횟수 {_arrow(tot, prev['tot'])} · 볼륨 {_arrow(vol, prev['vol'])}"
+            else:
+                cmp = "첫 기록"
+            print("  " + _pad(dt, 10) + _pad(cyc or "-", 7) + "│ " + cells + " │ "
+                  + _pad(f"{e1:.1f}" if e1 else "-", 8, True)
+                  + _pad(f"{top:g}" if top is not None else "-", 6, True)
+                  + _pad(str(tot) if tot is not None else "-", 8, True)
+                  + _pad(f"{vol:,.0f}" if vol else "-", 8, True) + " │ " + cmp)
+            first = first or cur
+            prev = cur
+        if len(sess) > 1 and first["e1"] and prev["e1"]:
+            print(f"  → 첫 기록 대비 추정 1RM {first['e1']:.1f} → {prev['e1']:.1f} "
+                  f"({(prev['e1'] / first['e1'] - 1) * 100:+.1f}%) · {len(sess)}회")
+        elif len(sess) > 1 and first["top"] is not None and prev["top"] is not None:
+            vv = f" · 볼륨 {(prev['vol'] / first['vol'] - 1) * 100:+.0f}%" if first["vol"] and prev["vol"] else ""
+            print(f"  → 첫 기록 대비 최고 무게 {_arrow(prev['top'], first['top'], 'kg')}{vv} ({len(sess)}회)")
 
 
 if __name__ == "__main__":

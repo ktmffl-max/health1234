@@ -295,7 +295,8 @@ WU_INSESSION = {
 
 def pick_latest(folder):
     """폴더에서 가장 최근에 수정된 워크북을 고른다. 엑셀 임시파일(~$)은 무시."""
-    cands = [p for p in Path(folder).glob("*.xlsx") if not p.name.startswith("~$")]
+    # 2026-11-13 같은 폴더에 세트기록_보기.xlsx(세트기록.py가 세션마다 새로 씀)가 생겼다 — 프로그램 워크북만
+    cands = [p for p in Path(folder).glob("운동프로그램*.xlsx") if not p.name.startswith("~$")]
     if not cands:
         sys.exit(f"{folder} 안에 .xlsx 파일이 없습니다. 워크북을 같은 폴더에 두세요.")
     return max(cands, key=lambda p: p.stat().st_mtime)
@@ -3633,6 +3634,9 @@ function tmMiniPaint(){
   const s=TM.st[TM.i], left=TM.run?Math.max(0,Math.ceil((TM.endAt-Date.now())/1000)):Math.ceil(TM.rest/1000);
   const t=`⏱ ${mmss(left)} · ${TM.run?PH[s.p][0]:"일시정지"} · ${s.e.name} ${s.set}/${s.sets} — 눌러서 타이머로`;
   if(b.textContent!==t) b.textContent=t;
+  /* 2026-11-13 사용자 요청 — 다이얼과 같은 색: 운동 초록 · 휴식 빨강 · 준비 노랑 · 일시정지는 원래 흰색 */
+  const bg = TM.run ? PH[s.p][1] : "";
+  if(b.style.background!==bg){ b.style.background=bg; b.style.color = !TM.run ? "" : s.p==="prep" ? "var(--bg)" : "#fff"; }
 }
 function tmMin(){
   if(!TM) return;

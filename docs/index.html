@@ -2100,6 +2100,9 @@ function tmMiniPaint(){
   const s=TM.st[TM.i], left=TM.run?Math.max(0,Math.ceil((TM.endAt-Date.now())/1000)):Math.ceil(TM.rest/1000);
   const t=`⏱ ${mmss(left)} · ${TM.run?PH[s.p][0]:"일시정지"} · ${s.e.name} ${s.set}/${s.sets} — 눌러서 타이머로`;
   if(b.textContent!==t) b.textContent=t;
+  /* 2026-11-13 사용자 요청 — 다이얼과 같은 색: 운동 초록 · 휴식 빨강 · 준비 노랑 · 일시정지는 원래 흰색 */
+  const bg = TM.run ? PH[s.p][1] : "";
+  if(b.style.background!==bg){ b.style.background=bg; b.style.color = !TM.run ? "" : s.p==="prep" ? "var(--bg)" : "#fff"; }
 }
 function tmMin(){
   if(!TM) return;

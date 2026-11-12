@@ -8,10 +8,15 @@ Claude에게 붙여 넣으면 add로 여기 쌓는다. 같은 날짜 · 종목 �
   python 세트기록.py show --day 2          (2일차 전부 · 종목별 사이클 흐름)
   python 세트기록.py show --ex 벤치         (이름에 '벤치'가 든 종목 · 모든 일차)
   python 세트기록.py show --day 2 --ex 플라이
+  python 세트기록.py pull                  (구글 시트에서 받아 세트기록.csv를 시트와 같게 — 세션 시작 훅이 부른다)
+
+2026-11-13 자동 저장: 앱이 기록할 때마다 구글 시트(구글시트_세트기록.gs)로 보내고, 세션을 열면 pull.
+시트 주소는 .sync_url (git 제외 — 공개 저장소라서)에만 둔다.
 """
 import argparse
 import csv
 import sys
+import urllib.request
 from collections import OrderedDict
 from pathlib import Path
 
@@ -34,7 +39,7 @@ def save(rows):
         w.writerows(rows)
 
 
-def parse_paste(text):
+def parse_paste(text, strict=True):
     out = []
     for line in text.splitlines():
         line = line.rstrip("\r")
@@ -42,6 +47,8 @@ def parse_paste(text):
             continue
         p = line.split("\t")
         if len(p) < 8:
+            if not strict:
+                continue
             sys.exit(f"[중단] 칸이 8개가 아닌 줄: {line!r} — 앱 복사 텍스트를 그대로 붙여야 한다(탭 구분)")
         out.append(dict(zip(COLS, p[:8])))
     return out
@@ -67,6 +74,37 @@ def cmd_add(a):
     save(rows)
     dates = sorted({r["날짜"] for r in new})
     print(f"세트기록.csv — 새 세트 {added} · 바뀐 세트 {changed} · 받은 날짜 {', '.join(dates) or '없음'} · 전체 {len(rows)}세트")
+
+
+def cmd_pull(a):
+    """시트가 원본이다 — 받은 내용으로 세트기록.csv를 통째로 맞춘다. 실패하면 csv는 그대로 두고 한 줄만 알린다."""
+    uf = CSV.parent / ".sync_url"
+    url = uf.read_text(encoding="utf-8").strip() if uf.exists() else ""
+    if not url:
+        print("세트기록 자동 저장: 아직 설정 안 됨 (.sync_url 없음)")
+        return
+    try:
+        with urllib.request.urlopen(url, timeout=15) as r:
+            text = r.read().decode("utf-8")
+    except Exception as e:
+        print(f"세트기록 자동 저장: 시트에서 못 받음 ({type(e).__name__}) — 세트기록.csv는 지난 것 그대로")
+        return
+    if not text.startswith("날짜	"):
+        print("세트기록 자동 저장: 시트 응답이 표가 아님 (배포 권한 '모든 사용자' 확인) — csv 그대로")
+        return
+    new = parse_paste(text, strict=False)
+    old = load()
+    key = lambda r: (r["날짜"], r["종목"], r["세트"])
+    ok, nk = {key(r): r for r in old}, {key(r): r for r in new}
+    if not new and old:
+        print(f"세트기록 자동 저장: 시트가 비어 있음 — csv {len(old)}세트는 지우지 않고 둔다")
+        return
+    add = len(nk.keys() - ok.keys())
+    chg = sum(1 for k in nk if k in ok and ok[k] != nk[k])
+    gone = len(ok.keys() - nk.keys())
+    save(list(new))
+    last = max((r["날짜"] for r in new), default="-")
+    print(f"세트기록 자동 저장: 세트기록.csv {len(new)}세트 (새 {add} · 바뀜 {chg} · 지움 {gone}) · 마지막 기록 {last}")
 
 
 def fmt_set(r):
@@ -109,6 +147,8 @@ if __name__ == "__main__":
     p = sub.add_parser("add")
     p.add_argument("file", nargs="?")
     p.set_defaults(fn=cmd_add)
+    p = sub.add_parser("pull")
+    p.set_defaults(fn=cmd_pull)
     p = sub.add_parser("show")
     p.add_argument("--day")
     p.add_argument("--ex")

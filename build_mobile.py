@@ -2088,8 +2088,40 @@ function sPut(date,day,name,i,patch){
   while(L.length&&!Object.keys(L[L.length-1]).length) L.pop();
   if(!L.length) delete x.ex[name];
   if(!Object.keys(x.ex).length) delete SETS[date];
-  sSave();
+  sSave(); syncMark(date);
 }
+/* ── 자동 저장 (2026-11-13) ── 바뀐 날짜의 세트 전부를 구글 시트 웹 앱으로 보낸다(그 날짜를 통째로 갈아끼움).
+   주소는 이 폰에만(wk-sync-url) — 공개 저장소에 넣지 않는다. 못 보낸 날짜는 wk-sync-dirty에 남아 다음에 다시.
+   no-cors라 응답 내용은 못 읽는다 — 네트워크가 통하면 보낸 것으로 친다. PC는 세션 시작 때 세트기록.py pull */
+const SYU="wk-sync-url", SYD="wk-sync-dirty", SYT="wk-sync-at";
+let SYNC_URL="", SDIRTY=[], SYNC_AT="", syncTimer=null, syncBusy=false;
+try{ SYNC_URL=localStorage.getItem(SYU)||""; SDIRTY=JSON.parse(localStorage.getItem(SYD)||"[]")||[]; SYNC_AT=localStorage.getItem(SYT)||""; }catch(e){}
+function syncSaveState(){ try{ localStorage.setItem(SYD,JSON.stringify(SDIRTY)); localStorage.setItem(SYT,SYNC_AT); }catch(e){} }
+function syncMark(date){ if(SDIRTY.indexOf(date)<0) SDIRTY.push(date); syncSaveState();
+  clearTimeout(syncTimer); syncTimer=setTimeout(sSync,3000); syncPaint(); }
+function sRowsOf(d){ const x=SETS[d], out=[]; if(!x) return out;
+  for(const n in x.ex) x.ex[n].forEach((s,i)=>{ if(Object.keys(s).length)
+    out.push([d,x.round||"",x.day||"",n,i+1,s.w||"",s.r||"",s.ok?"O":""]); });
+  return out; }
+function sSync(){
+  if(!SYNC_URL||!SDIRTY.length||syncBusy||!navigator.onLine) return;
+  const dates=SDIRTY.slice(), rows=[].concat(...dates.map(sRowsOf));
+  syncBusy=true;
+  fetch(SYNC_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body:JSON.stringify({dates,rows})})
+    .then(()=>{ SDIRTY=SDIRTY.filter(d=>dates.indexOf(d)<0);
+      const n=new Date(); SYNC_AT=String(n.getHours()).padStart(2,"0")+":"+String(n.getMinutes()).padStart(2,"0"); syncSaveState(); })
+    .catch(()=>{})
+    .finally(()=>{ syncBusy=false; syncPaint(); if(SDIRTY.length&&SDIRTY.some(d=>dates.indexOf(d)<0)) setTimeout(sSync,1000); });
+}
+function syncText(){
+  if(!SYNC_URL) return "자동 저장 꺼짐 — 아래 설정";
+  if(SDIRTY.length) return `자동 저장 대기 ${SDIRTY.length}일${navigator.onLine?"":" (오프라인)"}`;
+  return SYNC_AT?`자동 저장됨 ✓ ${SYNC_AT}`:"자동 저장 켜짐 ✓";
+}
+function syncPaint(){ const el=document.getElementById("sl-sync"); if(el) el.textContent=syncText(); }
+window.addEventListener("online",sSync);
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible") sSync(); });
+setTimeout(sSync,1500);
 const sPlan = w => String(w||"").replace(/\s*kg$/,"");
 function sToggle(date,day,name,i,pw){
   const s=sGet(date,name)[i]||{};
@@ -2443,7 +2475,11 @@ function dayHTML(d,week){
   const wgo = wst.length ? `<button class="day-go wu-go" data-wtm="1">&#9654; 웜업 타이머 · ${wuItems(d).length}항목 · 약 ${Math.round(wsec/60)}분</button>` : "";
   const ld = mode==="back"&&D.back[tab] ? logDateFor(tab) : null;
   const sl = ld ? `<p class="sl-date">세트 기록 날짜 · <b>${+ld.slice(5,7)}/${+ld.slice(8)}(${DOWK(ld)})</b> — 다른 날이면 달력에서 그 칸을 누른다 ·
-    <button class="tm-go" id="sl-copy">PC로 보낼 세트 기록 복사</button></p>` : "";
+    <button class="tm-go" id="sl-copy">PC로 보낼 세트 기록 복사</button> · <b id="sl-sync">${syncText()}</b></p>
+    <details class="cal-fix"><summary>자동 저장 설정</summary>
+      <p class="footnote">구글 시트 웹 앱 주소(…/exec)를 한 번만 붙여 넣는다. 이 폰에만 저장되고, 붙여 넣는 순간 지금까지 기록 전부를 보낸다.</p>
+      <div class="cal-days"><input id="sl-url" class="log-in wide" type="url" placeholder="https://script.google.com/macros/s/…/exec" value="${escAttr(SYNC_URL)}">
+        <button id="sl-url-save">저장</button>${SYNC_URL?`<button id="sl-url-del">끄기</button>`:""}</div></details>` : "";
   return `<h2 class="daytitle">${esc(d.t)}</h2><p class="daysub">${esc(d.sub)}</p>${bar}${wgo}${go}${sl}
     ${cards}${notesHTML(d.pre)}${body}
     <div class="total"><span>세트 합계</span><b class="num">${done!==d.total?`${done} <i style="font-style:normal;font-weight:600;color:var(--mute);font-size:13px">/ 설계 ${d.total}</i>`:d.total}</b></div>${holdBox}${notesHTML(d.notes)}`;
@@ -3753,6 +3789,13 @@ function bindEdits(){
   document.querySelectorAll("[data-bcal]").forEach(el=>{ el.onclick=()=>{
     LOGDATE = el.dataset.bdate ? {day:el.dataset.bcal, date:el.dataset.bdate} : null;
     tab=el.dataset.bcal; render(); window.scrollTo({top:0}); }; });
+  const su=document.getElementById("sl-url-save");
+  if(su) su.onclick=()=>{ const v=document.getElementById("sl-url").value.trim();
+    if(!/^https:\/\/script\.google(usercontent)?\.com\//.test(v)){ su.textContent="주소 확인"; return; }
+    SYNC_URL=v; try{ localStorage.setItem(SYU,v); }catch(e){}
+    SDIRTY=Object.keys(SETS); syncSaveState(); sSync(); render(); };
+  const sd=document.getElementById("sl-url-del");
+  if(sd) sd.onclick=()=>{ SYNC_URL=""; try{ localStorage.removeItem(SYU); }catch(e){} render(); };
   const slc=document.getElementById("sl-copy");
   if(slc) slc.onclick=()=>{
     const text=sExport(), n=text.split("\n").length-2;

@@ -110,24 +110,102 @@ def cmd_pull(a):
     last = max((r["날짜"] for r in new), default="-")
     msg = f"세트기록 자동 저장: 세트기록.csv {len(new)}세트 (새 {add} · 바뀜 {chg} · 지움 {gone}) · 마지막 기록 {last}"
     if write_view():
-        msg += " · 세트기록_보기.txt 갱신"
+        msg += " · 세트기록_보기.xlsx 갱신"
+    else:
+        msg += " · 세트기록_보기.xlsx는 엑셀에 열려 있어 못 고침"
     print(msg)
 
 
-VIEW = CSV.parent / "세트기록_보기.txt"
+VIEW = CSV.parent / "세트기록_보기.xlsx"
 
 
 def write_view():
-    """폴더에서 바로 열어 보는 비교 표 — show 전체 출력을 그대로 파일로(메모장에서 줄이 맞게 고정폭 글꼴 권장)"""
-    import io
-    from contextlib import redirect_stdout
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        cmd_show(argparse.Namespace(day=None, ex=None))
+    """폴더에서 바로 열어 보는 비교 표(엑셀) — 세션 시작 때마다 새로 쓴다. 엑셀에 열려 있으면 건너뛴다"""
     try:
-        VIEW.write_text("세트 기록 비교 표 — 세션을 열 때마다 자동으로 새로 쓴다(직접 고치지 말 것)\n"
-                        "같은 그립 · 같은 방식(FST-7)끼리만 '지난번 대비'를 잰다. 진전 기준 = 추정 1RM\n"
-                        + buf.getvalue(), encoding="utf-8-sig")
+        import openpyxl
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        return False
+    bl = list(blocks(load()))
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "비교표"
+    N = max([b["n"] for b in bl] + [1])
+    ws["A1"] = "세트 기록 비교 표 — 세션을 열 때마다 자동으로 새로 쓴다(직접 고치지 말 것) · 같은 그립 · 같은 방식(FST-7)끼리만 비교 · 진전 기준 = 추정 1RM"
+    ws["A1"].font = Font(bold=True, size=11)
+    head = ["날짜", "사이클"] + [f"{k}세트" for k in range(1, N + 1)] + \
+           ["추정1RM", "±1RM", "최고무게", "±무게", "총횟수", "±횟수", "볼륨", "±볼륨"]
+    ncol = len(head)
+    T_FILL = PatternFill("solid", fgColor="DDE3EA")
+    H_FILL = PatternFill("solid", fgColor="F2F4F7")
+    OK_FILL = PatternFill("solid", fgColor="E3F2E6")
+    UP, DN, MUTE = Font(color="1E7B34", bold=True), Font(color="C0392B", bold=True), Font(color="8A8F98")
+    thin = Side(style="thin", color="D5D9E0")
+    box = Border(bottom=thin)
+    center = Alignment(horizontal="center", vertical="center")
+    r = 3
+    for b in bl:
+        grip = f"   ‹그립 {b['grip']}› — 같은 그립끼리 비교" if b["grip"] else ""
+        ws.cell(r, 1, f"{b['day']}일차 · {b['base']}{grip}").font = Font(bold=True, size=12)
+        for c in range(1, ncol + 1):
+            ws.cell(r, c).fill = T_FILL
+        r += 1
+        for c, h in enumerate(head, 1):
+            x = ws.cell(r, c, h)
+            x.font, x.fill, x.alignment, x.border = Font(bold=True, color="555B66"), H_FILL, center, box
+        r += 1
+        for s in b["sess"]:
+            ws.cell(r, 1, s["dt"]).alignment = center
+            ws.cell(r, 2, int(s["cyc"]) if str(s["cyc"]).isdigit() else s["cyc"]).alignment = center
+            for k in range(1, N + 1):
+                x = ws.cell(r, 2 + k)
+                x.alignment = center
+                if k in s["sets"]:
+                    x.value = _cell(s["sets"][k])
+                    if s["sets"][k]["달성"] == "O":
+                        x.fill = OK_FILL
+                elif k <= b["n"]:
+                    x.value, x.font = "·", MUTE
+            c0 = 3 + N
+            vals = [(s["e1"], s["d_e1"], "0.0", "+0.0;-0.0"),
+                    (s["top"], s["d_top"], "General", None),
+                    (s["tot"], s["d_tot"], "0", "+0;-0"),
+                    (s["vol"], s["d_vol"], "#,##0", "+#,##0;-#,##0")]
+            for i, (v, dv, f1, f2) in enumerate(vals):
+                a = ws.cell(r, c0 + 2 * i, round(v, 1) if v is not None else "-")
+                a.number_format, a.alignment = f1, center
+                d = ws.cell(r, c0 + 2 * i + 1)
+                d.alignment = center
+                if s["first"]:
+                    if i == 0:
+                        d.value, d.font = "첫 기록", MUTE
+                elif dv is None:
+                    if i == 1 and s["wtxt"]:
+                        d.value = s["wtxt"]
+                    else:
+                        d.value, d.font = "—", MUTE
+                elif abs(dv) < 1e-9:
+                    d.value, d.font = "=", MUTE
+                else:
+                    dv = round(dv, 1)
+                    d.value = int(dv) if dv == int(dv) else dv
+                    d.number_format = f2 or ("+0;-0" if dv == int(dv) else "+0.0;-0.0")
+                    d.font = UP if dv > 0 else DN
+            r += 1
+        if b["summary"]:
+            ws.cell(r, 1, b["summary"]).font = Font(italic=True, color="1E5BA8")
+            r += 1
+        r += 1
+    # 핀 무게('25 + 핀 + 1×12✓')처럼 긴 칸이 잘리지 않게 내용 폭에 맞춘다(한글 두 칸)
+    sw = max([10] + [_w(_cell(x)) + 2 for b in bl for s in b["sess"] for x in s["sets"].values()])
+    ww = max([8] + [_w(s["wtxt"]) + 2 for b in bl for s in b["sess"]])
+    widths = [11, 7] + [sw] * N + [9, 8, 9, ww, 8, 7, 9, 8]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "A2"
+    try:
+        wb.save(VIEW)
         return True
     except PermissionError:
         return False
@@ -139,6 +217,7 @@ def fmt_set(r):
     return f"{w}×{reps}" + ("" if r["달성"] == "O" else "(미체크)" if r["횟수"] else "")
 
 
+import datetime
 import unicodedata
 
 DOW = "월화수목금토일"
@@ -178,69 +257,95 @@ def _arrow(now, before, unit=""):
     return f"{'▲' if d > 0 else '▼'}{abs(d):g}{unit}"
 
 
+def _diff(a, b):
+    return None if a is None or b is None else a - b
+
+
+def blocks(rows):
+    """종목(그립 · 방식 꼬리표 포함)마다 세션 목록과 계산값 — 터미널 표와 엑셀 표가 같이 쓴다.
+    등 그립 회전 종목은 '랫풀다운 [오버 넓게 · 양손]'처럼 그립이 이름에 붙어 온다(앱 2026-11-13) —
+    그립마다 따로 표 · 같은 그립끼리만 '지난번 대비'. 같은 종목의 그립 표는 나란히"""
+    by_ex = OrderedDict()
+    for r in sorted(rows, key=lambda r: (r["일차"], r["종목"].split(" [")[0], r["날짜"], int(r["세트"] or 0))):
+        by_ex.setdefault((r["일차"], r["종목"]), OrderedDict()).setdefault(
+            (r["날짜"], r["사이클"]), {})[int(r["세트"] or 0)] = r
+    for (day, ex), ss in by_ex.items():
+        base, _, grip = ex.partition(" [")
+        out, prev = [], None
+        for (d, cyc), sets in ss.items():
+            ws = [_num(x["무게"]) for x in sets.values()]
+            top = max([x for x in ws if x is not None], default=None)
+            reps = [int(x["횟수"]) for x in sets.values() if x["횟수"].isdigit()]
+            tot = sum(reps) if reps else None
+            vol = sum((_num(x["무게"]) or 0) * int(x["횟수"]) for x in sets.values()
+                      if _num(x["무게"]) is not None and x["횟수"].isdigit()) or None
+            # 핀 · 손목 단계처럼 숫자가 아닌 무게 — 첫 세트 글자 그대로 비교한다
+            raw = next((x["무게"] for x in sets.values() if x["무게"]), "")
+            # 추정 1RM(Epley) — 그날 가장 좋은 세트. 무게와 횟수를 숫자 하나로: 강해졌으면 오른다
+            e1 = max(((_num(x["무게"]) or 0) * (1 + int(x["횟수"]) / 30) for x in sets.values()
+                      if _num(x["무게"]) and x["횟수"].isdigit()), default=None)
+            dt = f"{int(d[5:7])}/{int(d[8:])}"
+            try:
+                dt += f"({DOW[datetime.date.fromisoformat(d).weekday()]})"
+            except ValueError:
+                pass
+            s = {"d": d, "dt": dt, "cyc": cyc or "-", "sets": sets, "top": top, "tot": tot, "vol": vol,
+                 "raw": raw, "e1": e1, "first": prev is None, "wtxt": "",
+                 "d_e1": None, "d_top": None, "d_tot": None, "d_vol": None}
+            if prev:
+                s["d_e1"] = _diff(round(e1, 1) if e1 else None, round(prev["e1"], 1) if prev["e1"] else None)
+                s["d_top"], s["d_tot"], s["d_vol"] = _diff(top, prev["top"]), _diff(tot, prev["tot"]), _diff(vol, prev["vol"])
+                if s["d_top"] is None and raw != prev["raw"]:
+                    s["wtxt"] = f"{prev['raw'] or '?'} → {raw or '?'}"
+            out.append(s)
+            prev = s
+        first, last = out[0], out[-1]
+        summary = ""
+        if len(out) > 1 and first["e1"] and last["e1"]:
+            summary = (f"→ 첫 기록 대비 추정 1RM {first['e1']:.1f} → {last['e1']:.1f} "
+                       f"({(last['e1'] / first['e1'] - 1) * 100:+.1f}%) · {len(out)}회")
+        elif len(out) > 1 and first["top"] is not None and last["top"] is not None:
+            vv = f" · 볼륨 {(last['vol'] / first['vol'] - 1) * 100:+.0f}%" if first["vol"] and last["vol"] else ""
+            summary = f"→ 첫 기록 대비 최고 무게 {_arrow(last['top'], first['top'], 'kg')}{vv} ({len(out)}회)"
+        yield {"day": day, "ex": ex, "base": base, "grip": grip.rstrip("]"),
+               "n": max(max(x["sets"]) for x in out), "sess": out, "summary": summary}
+
+
 def cmd_show(a):
     rows = [r for r in load()
             if (not a.day or r["일차"] == a.day) and (not a.ex or a.ex in r["종목"])]
     if not rows:
         print("해당 기록 없음" + ("" if CSV.exists() else " — 세트기록.csv가 아직 없다"))
         return
-    by_ex = OrderedDict()
-    # 등 그립 회전 종목은 '랫풀다운 [오버 넓게 · 양손]'처럼 그립이 이름에 붙어 온다(앱 2026-11-13) —
-    # 그립마다 따로 표를 만들어 같은 그립끼리만 '지난번 대비'를 잰다. 같은 종목의 그립 표는 나란히
-    for r in sorted(rows, key=lambda r: (r["일차"], r["종목"].split(" [")[0], r["날짜"], int(r["세트"] or 0))):
-        by_ex.setdefault((r["일차"], r["종목"]), OrderedDict()).setdefault(
-            (r["날짜"], r["사이클"]), {})[int(r["세트"] or 0)] = r
-    for (day, ex), sess in by_ex.items():
-        n = max(max(v) for v in sess.values())
-        cw = max([6] + [_w(_cell(r)) for v in sess.values() for r in v.values()])
+    for b in blocks(rows):
+        n = b["n"]
+        cw = max([6] + [_w(_cell(x)) for s in b["sess"] for x in s["sets"].values()])
         head = (_pad("날짜", 10) + _pad("사이클", 7) + "│ " + " ".join(_pad(f"{k}세트", cw) for k in range(1, n + 1))
-                + " │ " + _pad("추정1RM", 8, True) + _pad("최고", 6, True) + _pad("총횟수", 8, True) + _pad("볼륨", 8, True) + " │ 지난번 대비")
+                + " │ " + _pad("추정1RM", 8, True) + _pad("최고", 6, True) + _pad("총횟수", 8, True)
+                + _pad("볼륨", 8, True) + " │ 지난번 대비")
         print()
-        base, _, grip = ex.partition(" [")
-        print(f"■ {day}일차 · {base}" + (f"  ‹그립 {grip.rstrip(']')}› — 같은 그립끼리 비교" if grip else ""))
+        print(f"■ {b['day']}일차 · {b['base']}" + (f"  ‹그립 {b['grip']}› — 같은 그립끼리 비교" if b["grip"] else ""))
         print("  " + head)
         print("  " + "─" * _w(head))
-        prev = first = None
-        for (d, cyc), sets in sess.items():
-            ws = [_num(r["무게"]) for r in sets.values()]
-            top = max([x for x in ws if x is not None], default=None)
-            reps = [int(r["횟수"]) for r in sets.values() if r["횟수"].isdigit()]
-            tot = sum(reps) if reps else None
-            vol = sum(_num(r["무게"]) * int(r["횟수"]) for r in sets.values()
-                      if _num(r["무게"]) is not None and r["횟수"].isdigit()) or None
-            # 핀 · 손목 단계처럼 숫자가 아닌 무게 — 첫 세트 글자 그대로 비교한다
-            raw = next((r["무게"] for r in sets.values() if r["무게"]), "")
-            # 추정 1RM(Epley) — 그날 가장 좋은 세트. 무게와 횟수를 숫자 하나로: 강해졌으면 오른다
-            e1 = max((_num(r["무게"]) * (1 + int(r["횟수"]) / 30) for r in sets.values()
-                      if _num(r["무게"]) and r["횟수"].isdigit()), default=None)
-            cur = {"top": top, "tot": tot, "vol": vol, "raw": raw, "e1": e1}
-            dt = f"{int(d[5:7])}/{int(d[8:])}"
-            try:
-                import datetime
-                dt += f"({DOW[datetime.date.fromisoformat(d).weekday()]})"
-            except ValueError:
-                pass
-            cells = " ".join(_pad(_cell(sets[k]) if k in sets else "·", cw) for k in range(1, n + 1))
+        prev = None
+        for s in b["sess"]:
+            cells = " ".join(_pad(_cell(s["sets"][k]) if k in s["sets"] else "·", cw) for k in range(1, n + 1))
             if prev:
-                wcmp = (_arrow(top, prev['top'], 'kg') if top is not None and prev['top'] is not None
-                        else "=" if raw == prev['raw'] else f"{prev['raw'] or '?'} → {raw or '?'}")
-                e1c = _arrow(round(e1, 1) if e1 else None, round(prev['e1'], 1) if prev['e1'] else None)
-                cmp = (f"1RM {e1c} · " if e1 and prev['e1'] else "") + f"무게 {wcmp} · 횟수 {_arrow(tot, prev['tot'])} · 볼륨 {_arrow(vol, prev['vol'])}"
+                wcmp = (_arrow(s["top"], prev["top"], "kg") if s["d_top"] is not None
+                        else "=" if not s["wtxt"] else s["wtxt"])
+                e1c = _arrow(round(s["e1"], 1) if s["e1"] else None, round(prev["e1"], 1) if prev["e1"] else None)
+                cmp = ((f"1RM {e1c} · " if s["e1"] and prev["e1"] else "")
+                       + f"무게 {wcmp} · 횟수 {_arrow(s['tot'], prev['tot'])} · 볼륨 {_arrow(s['vol'], prev['vol'])}")
             else:
                 cmp = "첫 기록"
-            print("  " + _pad(dt, 10) + _pad(cyc or "-", 7) + "│ " + cells + " │ "
-                  + _pad(f"{e1:.1f}" if e1 else "-", 8, True)
-                  + _pad(f"{top:g}" if top is not None else "-", 6, True)
-                  + _pad(str(tot) if tot is not None else "-", 8, True)
-                  + _pad(f"{vol:,.0f}" if vol else "-", 8, True) + " │ " + cmp)
-            first = first or cur
-            prev = cur
-        if len(sess) > 1 and first["e1"] and prev["e1"]:
-            print(f"  → 첫 기록 대비 추정 1RM {first['e1']:.1f} → {prev['e1']:.1f} "
-                  f"({(prev['e1'] / first['e1'] - 1) * 100:+.1f}%) · {len(sess)}회")
-        elif len(sess) > 1 and first["top"] is not None and prev["top"] is not None:
-            vv = f" · 볼륨 {(prev['vol'] / first['vol'] - 1) * 100:+.0f}%" if first["vol"] and prev["vol"] else ""
-            print(f"  → 첫 기록 대비 최고 무게 {_arrow(prev['top'], first['top'], 'kg')}{vv} ({len(sess)}회)")
+            print("  " + _pad(s["dt"], 10) + _pad(s["cyc"], 7) + "│ " + cells + " │ "
+                  + _pad(f"{s['e1']:.1f}" if s["e1"] else "-", 8, True)
+                  + _pad(f"{s['top']:g}" if s["top"] is not None else "-", 6, True)
+                  + _pad(str(s["tot"]) if s["tot"] is not None else "-", 8, True)
+                  + _pad(f"{s['vol']:,.0f}" if s["vol"] else "-", 8, True) + " │ " + cmp)
+            prev = s
+        if b["summary"]:
+            print("  " + b["summary"])
 
 
 if __name__ == "__main__":

@@ -2122,7 +2122,17 @@ function tmLoop(){
     const t=tab, w=week; tab=TM.tab; week=TM.week;
     try{ tmLoop0(); } finally { tab=t; week=w; }
   } else tmLoop0();
-  if(TM&&TM.min) tmMiniPaint();
+  if(TM&&TM.min){ tmMiniPaint(); tmFollow(); }
+}
+/* 2026-11-13 사용자 요청 — 나가 있는 동안 타이머 종목이 바뀌면 그 카드로 따라간다.
+   그 일차 화면을 보고 있을 때만 · 숫자 치는 중이면 안 움직인다(다음 틱에 다시 본다) */
+function tmFollow(){
+  const s=TM.st[TM.i], nm=s&&s.e?(s.e.of||s.e).name:null;
+  if(!nm||nm===TM.focus||tab!==TM.tab) return;
+  const a=document.activeElement; if(a&&a.tagName==="INPUT") return;
+  TM.focus=nm; SOPEN.add(nm);
+  const d=[...document.querySelectorAll("details.slog")].find(x=>x.dataset.sn===nm); if(d) d.open=true;
+  tmGoCard(nm,true);
 }
 /* 세트 기록 한 줄 — 운동 중이면 지금 세트, 휴식이면 방금 끝낸 세트. 치는 중이면 안 건드린다 */
 function tmSlog(s){
@@ -2153,14 +2163,18 @@ function tmMin(){
   TM.min=true; document.getElementById("tm").hidden=true; document.body.style.overflow="";
   tab=TM.tab; week=TM.week; if(TM.date) LOGDATE={day:TM.tab,date:TM.date};
   if(nm) SOPEN.add(nm);
+  TM.focus=nm;
   render(); tmMiniPaint(); document.getElementById("tm-mini").hidden=false;
   tmGoCard(nm);
 }
 /* 2026-11-13 사용자 요청 — 나가기 하면 지금 종목 카드의 맨 위가 고정 머리글 바로 아래에 오게. 잠깐 테두리 반짝 */
-function tmGoCard(nm){
+function tmGoCard(nm,soft){
   if(!nm) return;
   const d=[...document.querySelectorAll("details.slog")].find(x=>x.dataset.sn===nm);
   const card=d?d.closest("article.ex"):null; if(!card) return;
+  /* soft(자동 따라가기) — 카드가 이미 화면에 다 보이면 스크롤 없이 반짝이기만 */
+  const h=document.querySelector("header"), top0=h?h.getBoundingClientRect().height:0, r=card.getBoundingClientRect();
+  if(soft&&r.top>=top0&&r.bottom<=window.innerHeight-70){ card.classList.remove("flash"); void card.offsetWidth; card.classList.add("flash"); return; }
   const go=()=>{ const h=document.querySelector("header"), top=h?h.getBoundingClientRect().height:0;
     window.scrollTo({top:Math.max(0,card.getBoundingClientRect().top+window.scrollY-top-10)}); };
   go(); requestAnimationFrame(go);

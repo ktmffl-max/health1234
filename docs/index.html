@@ -202,7 +202,10 @@ details.slog summary b{color:var(--ink)}
 #tm-slog .sl-row{justify-content:center}
 .tm-left{display:flex;align-items:center;gap:8px;min-width:0}
 #tm-ctx{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tm-top #tm-min{flex:none;font-size:13px;font-weight:800;color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:5px 10px}
+/* 2026-11-13 나가기 = 다이얼 오른쪽 아래(사용자 지정 자리 · ✕와 멀리) */
+.tm-dialwrap{position:relative;width:100%;display:flex;justify-content:center}
+#tm-min{position:absolute;right:0;bottom:0;font:inherit;font-size:13px;font-weight:800;color:var(--ink);background:var(--surface);
+  border:1px solid var(--line);border-radius:999px;padding:7px 11px;cursor:pointer}
 #tm-mini{position:fixed;left:16px;right:16px;bottom:14px;z-index:150;font:inherit;font-size:14px;font-weight:800;
   padding:13px 16px;border:0;border-radius:999px;background:var(--ink);color:var(--bg);box-shadow:0 4px 18px rgba(0,0,0,.25);
   font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
@@ -318,15 +321,16 @@ details.slog summary b{color:var(--ink)}
   color:var(--mute);padding:2px 6px;cursor:pointer}
 .tm-btns{display:flex;align-items:center;gap:2px;flex:none}
 #tm-mute.off{opacity:.4}
-.tm-body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  text-align:center;min-height:0}
+.tm-body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:safe center;
+  text-align:center;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.tm-body>*{flex:none}
 #tm-name{margin:0;font-size:25px;font-weight:800;line-height:1.25;letter-spacing:-.02em}
 #tm-meta{margin:5px 0 18px;font-size:14px;color:var(--mute);font-variant-numeric:tabular-nums}
 #tm-meta .tm-w,.tm-up .tm-w{border-bottom:1px dotted currentColor;cursor:pointer;padding-bottom:1px}
 #tm-meta .tm-w.edited,.tm-up .tm-w.edited{color:var(--bp);border-bottom-color:var(--bp)}
 #tm-meta .w-input{width:106px;font-size:15px;padding:4px 7px}
 .tm-up .w-input{width:88px;font-size:13px;padding:3px 6px}
-.tm-dial{width:min(72vw,286px);aspect-ratio:1;border-radius:50%;display:flex;flex-direction:column;
+.tm-dial{width:min(72vw,286px,32vh);aspect-ratio:1;border-radius:50%;display:flex;flex-direction:column;
   align-items:center;justify-content:center;background:var(--surface);
   border:7px solid var(--phase,var(--line));transition:border-color .25s}
 .tm-dial span{font-size:15px;font-weight:800;letter-spacing:.03em;color:var(--phase,var(--mute))}
@@ -367,14 +371,14 @@ details.slog summary b{color:var(--ink)}
 </header>
 <main id="app"></main>
 <div id="tm" hidden>
-  <div class="tm-top"><span class="tm-left"><span id="tm-ctx"></span
-    ><button id="tm-min" aria-label="타이머는 돌려 둔 채 잠깐 나가기">&#8601; 나가기</button></span><span class="tm-btns"
+  <div class="tm-top"><span class="tm-left"><span id="tm-ctx"></span></span><span class="tm-btns"
     ><button id="tm-mute" aria-label="음성 켜기/끄기">&#128266;</button
     ><button id="tm-x" aria-label="타이머 닫기">&#10005;</button></span></div>
   <div class="tm-body">
     <h3 id="tm-name"></h3>
     <p id="tm-meta"></p>
-    <div class="tm-dial" id="tm-dial"><span id="tm-phase"></span><b id="tm-time">00:00</b></div>
+    <div class="tm-dialwrap"><div class="tm-dial" id="tm-dial"><span id="tm-phase"></span><b id="tm-time">00:00</b></div
+      ><button id="tm-min" aria-label="타이머는 돌려 둔 채 잠깐 나가기">&#8601; 나가기</button></div>
     <p id="tm-set"></p>
     <div id="tm-wk"></div>
     <div id="tm-rec"></div>

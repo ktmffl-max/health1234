@@ -127,12 +127,75 @@ def write_view():
         from openpyxl.utils import get_column_letter
     except ImportError:
         return False
-    bl = list(blocks(load()))
+    bl = card_order(list(blocks(load())))
     wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "비교표"
+    wb.remove(wb.active)
+    # 2026-11-13 사용자 요청: 일차마다 시트 하나(1 · 2 · 3 · 4 · 5 · 7 · 8 — 휴식일 6 · 9 빼고) · 종목은 앱 카드 순서 · 그래프는 한 시트에 모아 둔다
+    for day in train_days(bl):
+        sheet_day(wb.create_sheet(f"{day}일차"), day, [b for b in bl if b["day"] == day])
+    charts(wb, bl)
+    try:
+        wb.save(VIEW)
+        return True
+    except PermissionError:
+        return False
+
+
+APP = CSV.parent.parent / "docs" / "index.html"   # 앱 배포본 — 카드 순서는 여기서 읽는다(build_mobile.py가 워크북에서 만든 것)
+
+
+def _app_days():
+    """앱의 9일 사이클 일차별 종목 이름 목록(카드 순서). 사이클 교대 종목(정지 벤치 ↔ 인클라인 등)은
+    짝 종목 바로 뒤에 끼운다. 앱 파일이 없거나 못 읽으면 빈 dict — 그러면 예전처럼 이름순"""
+    import json
+    try:
+        t = APP.read_text(encoding="utf-8")
+        D, _ = json.JSONDecoder().raw_decode(t[t.index("const D = ") + len("const D = "):])
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for d, day in (D.get("back") or {}).items():
+        ex = (day.get("ex") or []) + [x for _, g in (day.get("groups") or []) for x in g]
+        names = [e.get("name") or "" for e in ex]
+        for a in D.get("cycAlt") or []:
+            if str(a[0]) == d and a[2] not in names:
+                k = names.index(a[1]) + 1 if a[1] in names else len(names)
+                names.insert(k, a[2])
+        out[d] = names
+    return out
+
+
+def train_days(bl):
+    """시트로 만들 일차 — 앱에서 종목이 있는 날(휴식일 빼고) + 기록에만 있는 날"""
+    days = [d for d, n in _app_days().items() if n]
+    days += [b["day"] for b in bl if b["day"] not in days]
+    return sorted(set(days), key=lambda d: (not str(d).isdigit(), int(d) if str(d).isdigit() else 0, str(d)))
+
+
+def card_order(bl):
+    """블록을 일차 → 앱 카드 순서로. 같은 종목의 그립 · 방식 블록은 나란히. 지금 앱에 없는 종목(빠진 종목)은 그 일차 맨 뒤"""
+    order = _app_days()
+
+    def key(ib):
+        i, b = ib
+        names = order.get(str(b["day"]), [])
+        pos = names.index(b["base"]) if b["base"] in names else len(names)
+        d = int(b["day"]) if str(b["day"]).isdigit() else 99
+        return (d, pos, i)
+    return [b for _, b in sorted(enumerate(bl), key=key)]
+
+
+def sheet_day(ws, day, bl):
+    """일차 시트 하나 — 종목 블록을 카드 순서대로 위에서 아래로"""
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+    if not bl:
+        ws["A1"] = f"{day}일차 — 아직 기록 없음(다음 {day}일차 운동부터 채워진다)"
+        ws["A1"].font = Font(bold=True, size=11)
+        ws.column_dimensions["A"].width = 60
+        return
     N = max([b["n"] for b in bl] + [1])
-    ws["A1"] = "세트 기록 비교 표 — 세션을 열 때마다 자동으로 새로 쓴다(직접 고치지 말 것) · 같은 그립 · 같은 방식(FST-7)끼리만 비교 · 진전 기준 = 추정 1RM"
+    ws["A1"] = f"{day}일차 세트 기록 — 앱 카드 순서 — 세션을 열 때마다 자동으로 새로 쓴다(직접 고치지 말 것) · 같은 그립 · 같은 방식(FST-7)끼리만 비교 · 진전 기준 = 추정 1RM"
     ws["A1"].font = Font(bold=True, size=11)
     head = ["날짜", "사이클"] + [f"{k}세트" for k in range(1, N + 1)] + \
            ["추정1RM", "±1RM", "최고무게", "±무게", "총횟수", "±횟수", "볼륨", "±볼륨"]
@@ -147,7 +210,7 @@ def write_view():
     r = 3
     for b in bl:
         grip = f"   ‹그립 {b['grip']}› — 같은 그립끼리 비교" if b["grip"] else ""
-        ws.cell(r, 1, f"{b['day']}일차 · {b['base']}{grip}").font = Font(bold=True, size=12)
+        ws.cell(r, 1, f"{b['base']}{grip}").font = Font(bold=True, size=12)
         for c in range(1, ncol + 1):
             ws.cell(r, c).fill = T_FILL
         r += 1
@@ -204,12 +267,6 @@ def write_view():
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A2"
-    charts(wb, bl)
-    try:
-        wb.save(VIEW)
-        return True
-    except PermissionError:
-        return False
 
 
 def charts(wb, bl):
@@ -385,7 +442,7 @@ def cmd_show(a):
     if not rows:
         print("해당 기록 없음" + ("" if CSV.exists() else " — 세트기록.csv가 아직 없다"))
         return
-    for b in blocks(rows):
+    for b in card_order(list(blocks(rows))):
         n = b["n"]
         cw = max([6] + [_w(_cell(x)) for s in b["sess"] for x in s["sets"].values()])
         head = (_pad("날짜", 10) + _pad("사이클", 7) + "│ " + " ".join(_pad(f"{k}세트", cw) for k in range(1, n + 1))

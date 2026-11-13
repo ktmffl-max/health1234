@@ -51,7 +51,7 @@ DAY_SHEET = re.compile(r"^(?:D(\d+)|([월화수목금토일]))_")
 # 중량 · 주차는 그대로 날짜(토요일 넘김)로 세고, 오늘 몇 일차인지만 사이클 기준일에서 센다.
 # 시트 이름이 '사이클_<일차>_<내용>'이면 전부 잡는다 — 6 · 9일차는 시트가 없어 휴식이다.
 CYCLE_SHEET = re.compile(r"^사이클_(\d+)_")
-CYCLE_LEN = 9
+CYCLE_LEN = 10   # 2026-11-14 사용자 결정 — 9일차 팔 날 신설 · 10일차 휴식(8세션 + 휴식 2)
 
 
 def cycle_days(wb):
@@ -164,6 +164,9 @@ TRACK_KEYS = {_n: _k for _k, _ko, _d, _n in _ACC if _k not in _RETIRED}
 #          45 → 40 + 핀 + 2.5 → 40 + 핀 + 1 → 40 + 핀 → 40 → …
 # bar    = 봉 + 원판: +1kg (원판 격자 — 5로 나눈 나머지 4는 못 끼워 하나 더) · kg = +1kg · half = +0.5kg
 MICRO = {
+    # 2026-11-14 9일차 팔 날 새 종목
+    "EZ바 컬": "bar", "인클라인 스컬크러셔": "bar", "트라이셉스 딥 머신": "pin", "베이지안 케이블 컬": "pin",
+    "스파이더 컬": "wrist", "덤벨 오버헤드 익스텐션 (앉아서)": "wrist",
     "체스트 프레스 머신 프로트랙션": "pin", "시티드 케이블 로우": "pin", "원암 케이블 로우": "pin",
     "케이블 오버헤드 익스텐션 (로프)": "pin", "원암 케이블 레터럴 레이즈": "pin",
     "원암 케이블 리버스 플라이": "pin", "레터럴 레이즈": "pin",      # 월 7번은 머신
@@ -214,13 +217,12 @@ WARMUP = {
     ("4", "힙 쓰러스트"): None,
     # 2026-11-12 사용자 — 4일차 라잉 ↔ 7일차 오버헤드 자리 바꿈(4일차 오버헤드 ↔ 로프 푸쉬다운 FST-7 7라운드 · 7일차 라잉 단독)
     ("4", "케이블 오버헤드 익스텐션 (로프)"): "로프 오버헤드 40% × 12~15 — 하체 뒤 차가운 팔꿈치 · 푸쉬다운은 따로 안 함",
-    ("4", "페이스풀 (로프)"): "아주 가볍게 × 15 — 하체 뒤 그날 첫 어깨",
-    # 2026-11-11 랫풀다운 → 원암 덤벨 로우(사용자) — 여전히 그날 첫 당기기 · 오른쪽 대원근 땡김 이력
-    ("5", "원암 덤벨 로우"): "50% × 8 (좌우) — 그날 첫 당기기 · 맨 아래 늘릴 때 오른쪽 겨드랑이 뒤(대원근) 확인",
+    # 2026-11-14 원암 덤벨 로우 5 → 8일차(그날 네 번째 당기기라 예열 뺌 · 대원근 확인은 시트 메모) · 페이스풀 · 라잉 → 9일차
     ("5", "인클라인 덤벨 컬"): None,                              # 어깨 뒤 늘어난 자세 · 오른쪽 앞 어깨
     ("7", "루마니안 데드리프트"): None,                           # 햄스트링 근위부 이력
-    ("7", "라잉 트라이셉스 익스텐션"): None,                     # 하체 70분 뒤 차가운 팔꿈치
-    ("8", "업라이트 로우 (EZ바 · 넓은 그립)"): None, ("8", "인클라인 덤벨 컬"): None,  # 오른쪽 앞 어깨 이력
+    ("8", "업라이트 로우 (EZ바 · 넓은 그립)"): None,             # 오른쪽 앞 어깨 이력
+    ("9", "EZ바 컬"): None,                                       # 2026-11-14 9일차 팔 날 — 그날 첫 팔꿈치
+    ("9", "인클라인 스컬크러셔"): None,                           # 늘어난 자세 · 팔꿈치
 }
 
 
@@ -2677,7 +2679,7 @@ function calHTML(){
 /* ── 9일 사이클 (2026-11-01 v22) ─────────────────────────────────────
    오늘이 몇 일차인지는 '사이클 1일차 기준일'에서 센다. 중량도 같은 기준일에서 사이클마다 한 칸(위 backWeekOf).
    쉬어서 일차가 밀리면 일차만 다시 누른다 — 지금 몇 번째 사이클인지는 지켜서 중량이 되돌아가지 않는다 */
-const CAKEY="wk-canchor";
+const CAKEY="wk-canchor10";   /* 2026-11-14 9 → 10일 사이클 — 9일 기준으로 폰에 저장한 일차 기준일은 버린다 */
 let CANCHOR=(D.cycAnchor&&D.cycAnchor.date)||null;
 try{ const o=localStorage.getItem(CAKEY); if(o) CANCHOR=o; }catch(e){}
 const CLEN=D.backOrder.length;
@@ -2795,7 +2797,7 @@ function backCalHTML(){
   }
 
   return `<h2 class="daytitle">달력</h2>
-  <p class="daysub"><b>9일 사이클</b> — 7세션 + 휴식 2일이라 요일과 어긋난다. 오늘 할 일차는 날짜가 정한다(칸을 누르면 그 일차로).
+  <p class="daysub"><b>10일 사이클</b> — 8세션 + 휴식 2일이라 요일과 어긋난다. 오늘 할 일차는 날짜가 정한다(칸을 누르면 그 일차로).
     <b>중량은 사이클마다 한 칸</b> 오른다 — 1일차 칸에 그 사이클의 칸 번호가 적힌다.</p>
   ${head}
   <div class="cal-bar"><button id="cal-prev">‹</button>
@@ -2842,7 +2844,7 @@ function cycCheckHTML(){
   const rows=D.backCheck||[];
   if(!rows.length) return `<h2 class="daytitle">세트 검산</h2><p class="daysub">표가 없습니다.</p>`;
   return `<h2 class="daytitle">세트 검산</h2>
-  <p class="daysub">사이클_계획 부위별 표 그대로 — 직접 세트 · 주당 환산 = 사이클 × 7/9 · MAV 최소(주당)와 비교한다.
+  <p class="daysub">사이클_계획 부위별 표 그대로 — 직접 세트 · 주당 환산 = 사이클 × 7/10 · MAV 최소(주당)와 비교한다.
     간접은 미리 정한 규칙 하나(넓은 그립 로우 → 후면 0.33)만 쓴다.</p>
   <table class="tbl"><thead><tr><th>부위</th><th>사이클</th><th>주당</th><th>MAV</th><th>판정</th></tr></thead><tbody>
   ${rows.map(([m,c,w,v,tag,vd])=>`<tr><td${/합계|검산|실질/.test(m)?' style="font-weight:800"':""}>${esc(m)}</td>
@@ -2929,7 +2931,7 @@ function planHTML(){
 }
 function backPlanHTML(){
   const p=D.backPlan, c=cycDayOf(ymd(new Date()));
-  return `<h2 class="daytitle">9일 사이클 계획</h2><p class="daysub">${esc(p.sub)}</p>
+  return `<h2 class="daytitle">10일 사이클 계획</h2><p class="daysub">${esc(p.sub)}</p>
   <table class="tbl"><thead><tr><th>일차</th><th style="text-align:left">구성</th><th>세트</th><th>분</th></tr></thead><tbody>
   ${p.rows.map(r=>`<tr class="${r[2]?'':'rest'}" style="${c&&c.day===r[0]?'background:var(--raised)':''}"${r[2]?` data-bcal="${r[0]}"`:""}><td>${esc(r[0])}${c&&c.day===r[0]?' <span class="judge j-lo">오늘</span>':''}</td>
     <td class="wrap" style="font-weight:600;color:var(--ink)">${esc(r[1])}</td><td class="num">${r[2]||"—"}</td><td class="num">${r[3]||"—"}</td></tr>`).join("")}
@@ -3096,7 +3098,7 @@ function progressHTML(week){
   return `<h2 class="daytitle">증량 기록</h2>
   <p class="daysub">엑셀 증량기록과 같은 규칙 — 달성·공란은 다음 주에 오르고, 미달을 적으면 그 중량을 한 번 더 든다.
     위 −/+ 로 주차를 옮긴다. 기억으로 소급해 채우지 말 것.${bk
-      ? " 9일 사이클마다 한 칸씩 오른다 — 올리기 전에 이 칸의 결과를 먼저 적는다."
+      ? " 10일 사이클마다 한 칸씩 오른다 — 올리기 전에 이 칸의 결과를 먼저 적는다."
       : ""}</p>
   ${card}
   <table class="tbl"><thead><tr><th>주차</th>${keys.map(k=>`<th>${esc(LIFT[k].ko)}</th>`).join("")}<th>피로</th></tr></thead>

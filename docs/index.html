@@ -510,6 +510,10 @@ const saveOVT = () => { try{ localStorage.setItem(OVTK, JSON.stringify(OVT)); }c
   for(const k in OVT){ if(altIdle(k)) continue; const e=exByKey(k);
     if(!e||!e.wk0||e.wk0!==OVT[k].base){ delete OVT[k]; ch=true; } else e.wk=OVT[k].wk; }
   if(ch) saveOVT(); })();
+/* 2026-11-13 사용자: 원암인 줄 모르고 해머 스트랭스 로우 수행 초를 이것저것 눌러 저장 — 그 한 종목만 엑셀 값으로 한 번 되돌린다 */
+try{ if(localStorage.getItem("wk-ovt-fix")!=="20261113"){ const k="back|3|해머 스트랭스 로우";
+  if(OVT[k]){ const e=exByKey(k); if(e) e.wk=e.wk0; delete OVT[k]; saveOVT(); }
+  localStorage.setItem("wk-ovt-fix","20261113"); } }catch(e){}
 function setWk(key,v){
   const e=exByKey(key); if(!e||!e.wk0) return;
   v=Math.max(5,Math.round(v));
@@ -1169,11 +1173,15 @@ function gripOf(e){
 /* 원암 차례면 수행 시간 2배(좌우) · 최소 120초(2026-11-01 사용자 — 원암 레터럴 · 리버스 플라이와 같은 선).
    회전표 종목이 원암인 사이클에만 건다. 원래 원암 종목(시트 초가 좌우 기준)은 원암 차례면 120초 이상,
    양손 차례면 절반 · 최소 40초 */
+/* 원암 차례 수행 초를 종목마다 따로 — 2026-11-13 사용자: 3일차 해머 스트랭스 로우 원암은 80초(1분 20초).
+   폰에서 수행 초를 고쳐 두면 그 값이 이긴다(이 표는 고친 게 없을 때만) */
+const ARM_WK={"해머 스트랭스 로우":80};
 function armWk(e,wk){
   const gp = mode==="back" ? gripOf(e) : null;
   if(!gp||!gp.arm||!wk) return wk;
   const b1=!!e.grip.b;
-  if(gp.arm==="원암") return Math.max(120, b1 ? wk : wk*2);
+  if(gp.arm==="원암"){ const f=ARM_WK[e.name]; if(f!=null&&(e.wk0==null||e.wk===e.wk0)) return f;
+    return Math.max(120, b1 ? wk : wk*2); }
   if(gp.arm==="양손"&&b1) return 40;              /* 원암 케이블 로우 120초 → 양손 시티드 40초(보통 양손 종목 선) */
   return wk;
 }

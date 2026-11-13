@@ -2716,7 +2716,9 @@ function armWk(e,wk){
   const b1=!!e.grip.b;
   if(gp.arm==="원암"){ const f=ARM_WK[e.name]; if(f!=null&&(e.wk0==null||e.wk===e.wk0)) return f;
     return Math.max(120, b1 ? wk : wk*2); }
-  if(gp.arm==="양손"&&b1) return 40;              /* 원암 케이블 로우 120초 → 양손 시티드 40초(보통 양손 종목 선) */
+  /* 원암 기준 종목(시트 초 = 좌우)의 양손 차례 = 시트 초 ÷ 2. 2026-11-14 사용자: 40초 고정은 무리 —
+     1회 4~5초(내리기 2~3 · 멈춤 1 · 당기기 1) × 10~12회 ≈ 60초. 엑셀 칸을 고치면 따라간다 */
+  if(gp.arm==="양손"&&b1) return Math.round(wk/2);
   return wk;
 }
 const exName = e => gripOf(e)&&e.gname ? e.gname : e.name;

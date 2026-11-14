@@ -1723,6 +1723,11 @@ details p{margin:7px 0 0;font-size:12.5px;color:var(--mute);line-height:1.6}
 .wk-ed{margin-left:6px;cursor:pointer;border-style:solid;vertical-align:middle}
 .wk-ed.edited{color:var(--bp);border-color:var(--bp)}
 .wk-ed .w-input{width:56px;font-size:12px;padding:2px 5px}
+/* 2026-11-14 랙 · 스테이션 칸 */
+.rk{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.rk .wk-ed{margin-left:0}
+.tm-rk{display:inline-block;margin-top:8px;padding:5px 12px;border-radius:14px;font-size:13.5px;font-weight:800;
+  color:var(--ink);border:1px solid var(--mute)}
 #tm-wk{margin-top:10px}
 /* 세트 기록 (2026-11-13) */
 details.slog{margin:8px 0 0;border-top:1px dashed var(--line);padding-top:6px}
@@ -2055,6 +2060,34 @@ function setWk(key,v){
   v=Math.max(5,Math.round(v));
   if(v===e.wk0) delete OVT[key]; else OVT[key]={wk:v, base:e.wk0};
   e.wk=v; saveOVT();
+}
+/* ── 랙 · 스테이션 번호 — 2026-11-14 사용자 요청.
+   케이블은 스테이션 번호, 바벨 · 스미스는 J훅 · 세이프티 높이. 엑셀에는 없는 폰 전용 메모라
+   엑셀 값과 대조해 버리지 않는다(무게 덮어쓰기와 다름). 종목 이름으로 묶는다 — 같은 종목이면 날이 달라도 같은 자리 */
+const RACKK="wk-rack";
+let RACK={};
+try{ const o=JSON.parse(localStorage.getItem(RACKK)||"null"); if(o&&typeof o==="object") RACK=o; }catch(e){}
+const saveRACK = () => { try{ localStorage.setItem(RACKK, JSON.stringify(RACK)); }catch(e){} };
+const RK_CABLE = /케이블|랫풀다운|푸쉬다운|페이스풀|암풀다운/;
+const RK_BAR = new Set(["스쿼트","벤치프레스","정지 벤치프레스","인클라인 벤치프레스(바벨)",
+  "오버헤드 프레스 (스탠딩 바벨)","루마니안 데드리프트","시티드 카프 레이즈"]);
+const RK_F = {st:"스테이션", j:"J훅", sf:"세이프티"};
+function rackKind(name){
+  if(!name) return null;
+  if(RK_BAR.has(name) || /스미스/.test(name)) return ["j","sf"];
+  if(RK_CABLE.test(name)) return ["st"];
+  return null;
+}
+function rackVal(name,f){ const r=RACK[name]; return r&&r[f] ? r[f] : ""; }
+function rackLabel(f,v){ return f==="st" ? RK_F[f]+" "+v+(/^\d+$/.test(v)?"번":"") : RK_F[f]+" "+v; }
+function rackHTML(e){
+  const fs=rackKind(e.name); if(!fs) return "";
+  return `<div class="rk">${fs.map(f=>{ const v=rackVal(e.name,f);
+    return `<span class="tm-none wk-ed${v?" edited":""}" data-rk="${escAttr(e.name)}" data-rkf="${f}">${esc(v?rackLabel(f,v):RK_F[f]+" —")} &#9998;</span>`; }).join("")}</div>`;
+}
+function rackLine(e){
+  const fs=e&&rackKind(e.name); if(!fs) return "";
+  return fs.map(f=>{ const v=rackVal(e.name,f); return v?rackLabel(f,v):""; }).filter(Boolean).join(" · ");
 }
 const startOf = k => OV.lifts[k] ? OV.lifts[k].start : LIFT[k].start;
 
@@ -2416,6 +2449,7 @@ function exHTML(e,prefix,sets,timed){
       <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${wEd?'edited':''}"${wAttr}>${esc(w)}</span></div></div>
     ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${armWk(e,e.wk)}초${armWk(e,e.wk)!==e.wk?` (${gp&&gp.arm}${gp&&gp.arm==="원암"?" · 좌우":""})`:""} · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button><span class="tm-none wk-ed${OVT[key]?" edited":""}" data-wkkey="${escAttr(key)}">수행 ${e.wk}초 &#9998;</span></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
+    ${rackHTML(e)}
     ${pctRampHTML(e,prefix,n)}
     ${micHTML(e,key,w)}
     ${e.trk&&LIFT[e.lift]&&!dlOn()?liftLogHTML(e.lift,week):""}
@@ -3623,6 +3657,9 @@ function tmPaint(){
   const knE = s.p==="work" ? s.e : (nx ? nx.e : null);
   if(knE&&knE.kn&&!s.wt&&!s.ramp) document.getElementById("tm-set").insertAdjacentHTML("beforeend",
     `<br><span class="tm-kn">⚠ ${esc(knE.kn)}</span>`);
+  const rkE = s.p==="work" ? s.e : (nx ? nx.e : null), rkT = rackLine(rkE);
+  if(rkT) document.getElementById("tm-set").insertAdjacentHTML("beforeend",
+    `<br><span class="tm-rk">${esc(rkT)}</span>`);
   tmRecSet(tmRec(s.e));
   tmSlog(s);
   /* 수행 시간 — 운동 중이면 지금 세트, 준비 · 휴식 중이면 곧 시작할 세트의 종목 */
@@ -3846,6 +3883,13 @@ function bindEdits(){
   const rb=document.getElementById("ov-reset");
   if(rb) rb.onclick=()=>{ OV={lifts:{},ex:{}}; saveOV();
     for(const k in OVT){ const e=exByKey(k); if(e) e.wk=e.wk0; } OVT={}; saveOVT(); render(); };
+  /* 랙 · 스테이션 칸 — 글자 그대로 적는다(예: 3 · 12칸 · 왼쪽 2). 비우면 지운다 */
+  document.querySelectorAll("[data-rk]").forEach(el=>{ el.onclick=()=>{
+    const n=el.dataset.rk, f=el.dataset.rkf;
+    grabInput(el, rackVal(n,f), false, v=>{
+      if(v===""){ if(RACK[n]){ delete RACK[n][f]; if(!Object.keys(RACK[n]).length) delete RACK[n]; } }
+      else (RACK[n]||(RACK[n]={}))[f]=v;
+      saveRACK(); }); }; });
   /* 카드의 '수행 N초' — 숫자로 고친다. 비우면 엑셀 값으로 */
   document.querySelectorAll("[data-wkkey]").forEach(el=>{ el.onclick=()=>{
     const k=el.dataset.wkkey, e=exByKey(k); if(!e) return;

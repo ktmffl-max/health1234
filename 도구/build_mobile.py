@@ -228,6 +228,8 @@ WARMUP = {
     ("5", "인클라인 덤벨 컬"): None,                              # 어깨 뒤 늘어난 자세 · 오른쪽 앞 어깨
     ("7", "루마니안 데드리프트"): None,                           # 햄스트링 근위부 이력
     ("8", "업라이트 로우 (EZ바 · 넓은 그립)"): None,             # 오른쪽 앞 어깨 이력
+    # 2026-11-15 사용자 — 9일차 EZ바 컬 램프 3세트. {N%}는 앱이 그 종목 무게(폰 덮어쓰기 포함 · 봉 포함)로 kg을 낸다 — 무게가 없으면 % 그대로
+    ("9", "EZ바 컬"): "램프 3세트 — 봉만 × 12 → {50%} × 8 → {70%} × 4 · 세트 사이 30~45초 · 한계 근처 금지",
     ("9", "어시스트 딥스 (상체 세워서)"): "어시스트 많이 걸고 × 8 · 얕게 시작해 깊이를 천천히 — 오른쪽 앞 어깨 확인",   # 2026-11-15 딥 머신 대신
     ("9", "인클라인 스컬크러셔"): None,                           # 늘어난 자세 · 팔꿈치
 }
@@ -2444,6 +2446,12 @@ function pctRampHTML(e,prefix,n){
       <div class="work r-w">${kg(top)}</div><div class="work r-x num">${esc(e.r)}회</div><div class="work r-x num">${n}세트</div>
     </div>`;
 }
+/* 예열 글자 (2026-11-15) — {50%} 같은 칸을 그 종목 지금 무게(폰 덮어쓰기 포함)의 kg으로. 무게가 숫자가 아니면 % 그대로 */
+function wuT(e,key){
+  const t=e.wut||"50% × 6~8"; if(t.indexOf("{")<0) return t;
+  const o=OV.ex[key||(mode+"|"+tab+"|"+e.name)], w=parseFloat(String(o?o.w:e.w));
+  return t.replace(/\{(\d+)%\}/g,(m,p)=>(w>0)?Math.max(1,Math.round(w*p/100))+"kg":p+"%");
+}
 function exHTML(e,prefix,sets,timed){
   const key=prefix+"|"+e.name, ov=OV.ex[key];
   const w=ov&&!e.trk?ov.w:exW(e), canEdit=e.w!=="위 참조"&&!e.lo&&!e.pct&&!e.trk;
@@ -2464,7 +2472,7 @@ function exHTML(e,prefix,sets,timed){
   const gp = mode==="back" ? gripOf(e) : null;
   return `<article class="ex"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
-      <div class="ex-t"><h4>${esc(gp&&e.gname?e.gname:e.name)}</h4>${gp?`<div class="grip">그립 · ${esc(gp.t)} <i>(회전 ${gp.n})</i></div>${gp.cue?`<div class="grip cue">▸ ${esc(gp.cue)}</div>`:""}`:""}${e.cv&&e.cvf?(e.cvs==="on"?"":`<div class="grip">${e.cvf-1}사이클까지 <i>(${e.cvf}사이클부터 ${esc(e.cv.on.name)})</i></div>`):e.cv&&ALT_ON?`<div class="grip">사이클 교대 · ${ALT_ON==="odd"?"홀수":"짝수"} 사이클 <i>(다음 사이클은 ${esc(e.cv[ALT_ON==="odd"?"even":"odd"].name)})</i></div>`:""}${e.kn?`<div class="kn">⚠ ${esc(e.kn)}</div>`:""}${e.wu?`<div class="grip" style="color:var(--sq)">예열 · ${esc(e.wut||"50% × 6~8")}</div>`:""}<div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
+      <div class="ex-t"><h4>${esc(gp&&e.gname?e.gname:e.name)}</h4>${gp?`<div class="grip">그립 · ${esc(gp.t)} <i>(회전 ${gp.n})</i></div>${gp.cue?`<div class="grip cue">▸ ${esc(gp.cue)}</div>`:""}`:""}${e.cv&&e.cvf?(e.cvs==="on"?"":`<div class="grip">${e.cvf-1}사이클까지 <i>(${e.cvf}사이클부터 ${esc(e.cv.on.name)})</i></div>`):e.cv&&ALT_ON?`<div class="grip">사이클 교대 · ${ALT_ON==="odd"?"홀수":"짝수"} 사이클 <i>(다음 사이클은 ${esc(e.cv[ALT_ON==="odd"?"even":"odd"].name)})</i></div>`:""}${e.kn?`<div class="kn">⚠ ${esc(e.kn)}</div>`:""}${e.wu?`<div class="grip" style="color:var(--sq)">예열 · ${esc(wuT(e,key))}</div>`:""}<div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
       <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${wEd?'edited':''}"${wAttr}>${esc(w)}</span></div></div>
     ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${armWk(e,e.wk)}초${armWk(e,e.wk)!==e.wk?` (${gp&&gp.arm}${gp&&gp.arm==="원암"?" · 좌우":""})`:""} · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button><span class="tm-none wk-ed${OVT[key]?" edited":""}" data-wkkey="${escAttr(key)}">수행 ${e.wk}초 &#9998;</span></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
@@ -3676,7 +3684,7 @@ function tmPaint(){
   /* 예열 — 이 종목 1세트 앞 준비 시간이거나 1세트 중이면 큰 띠로. 다음 종목 예고 줄에도 붙인다 */
   const wuNow = s.wu&&s.p==="work" || s.p==="prep"&&nx&&nx.wu, wuNext = nx&&nx.e!==s.e&&nx.e.wu&&nx.set===1;
   if(wuNow) document.getElementById("tm-set").insertAdjacentHTML("beforeend",
-    `<br><span class="tm-wu">예열 — ${esc(s.e.wut||"50% × 6~8")}</span>`);
+    `<br><span class="tm-wu">예열 — ${esc(wuT(s.e))}</span>`);
   /* 무릎 경고(2026-11-10) — 그 종목 세트 중 · 세트 사이 휴식 · 그 종목 앞 휴식(다음이 그 종목)이면 노랑 띠 */
   const knE = s.p==="work" ? s.e : (nx ? nx.e : null);
   if(knE&&knE.kn&&!s.wt&&!s.ramp) document.getElementById("tm-set").insertAdjacentHTML("beforeend",
@@ -3699,7 +3707,7 @@ function tmPaint(){
      읊어 주는 내용과 같다. 소리를 껐거나 못 들었을 때의 몫이기도 하다.
      여기 무게도 눌러 고칠 수 있다 — 다음 종목 준비는 쉬는 동안 하는 것이니 */
   tmSet("tm-up", (nx&&nx.e!==s.e)
-    ? "다음 ▸ <b>"+esc(mode==="back"?exName(nx.e):nx.e.name)+"</b>"+((g=>g?' <b style="color:var(--bp)">· 그립 '+esc(g.t)+"</b>":"")(mode==="back"?gripOf(nx.e):null))+"<i>"+tmMeta(nx.e)+" · "+nx.sets+"세트"+(wuNext?'<br><b style="color:var(--sq)">예열 1세트 — '+esc(nx.e.wut||"50% × 6~8")+'</b>':"")+"</i>"
+    ? "다음 ▸ <b>"+esc(mode==="back"?exName(nx.e):nx.e.name)+"</b>"+((g=>g?' <b style="color:var(--bp)">· 그립 '+esc(g.t)+"</b>":"")(mode==="back"?gripOf(nx.e):null))+"<i>"+tmMeta(nx.e)+" · "+nx.sets+"세트"+(wuNext?'<br><b style="color:var(--sq)">예열 1세트 — '+esc(wuT(nx.e))+'</b>':"")+"</i>"
     : !nx ? "마지막 세트"
     : s.p==="prep" ? "이어서 ▸ 운동 "+mmss(nx.t)+" × "+nx.sets+"세트"
     : nx.p==="rest" ? "다음 ▸ 휴식 "+mmss(nx.t)

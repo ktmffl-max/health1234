@@ -215,7 +215,7 @@ MICRO = {
 MOVE = {
     ("8", "인클라인 플라이 머신"): "옆 센터 인클라인 플라이 머신으로 이동, 덤벨 들고 가기",
 }
-WU_DEFAULT = "50% × 6~8"
+WU_DEFAULT = "{50%} × 6~8"   # 2026-11-15 사용자 — 앱이 늘 그 종목 지금 무게로 kg 계산(wuT)
 WARMUP = {
     ("1", "레그 컬"): None,                                       # 패드로 늘어난 자세 · 첫 무릎 굽힘
     ("1", "넥 익스텐션 (플레이트)"): "무게 없이 머리만 앞뒤로 × 15씩 — 그날 첫 목 · 가동범위부터",
@@ -2448,8 +2448,9 @@ function pctRampHTML(e,prefix,n){
 }
 /* 예열 글자 (2026-11-15) — {50%} 같은 칸을 그 종목 지금 무게(폰 덮어쓰기 포함)의 kg으로. 무게가 숫자가 아니면 % 그대로 */
 function wuT(e,key){
-  const t=e.wut||"50% × 6~8"; if(t.indexOf("{")<0) return t;
-  const o=OV.ex[key||(mode+"|"+tab+"|"+e.name)], w=parseFloat(String(o?o.w:e.w));
+  const t=e.wut||"{50%} × 6~8"; if(t.indexOf("{")<0) return t;
+  /* 카드와 같은 무게 — 폰 덮어쓰기 > 추적 · 증량표 무게(exW) */
+  const o=OV.ex[key||(mode+"|"+tab+"|"+e.name)], w=parseFloat(String(o&&!e.trk?o.w:exW(e)));
   return t.replace(/\{(\d+)%\}/g,(m,p)=>(w>0)?Math.max(1,Math.round(w*p/100))+"kg":p+"%");
 }
 function exHTML(e,prefix,sets,timed){

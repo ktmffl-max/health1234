@@ -208,6 +208,12 @@ MICRO = {
 # 2026-11-01 v22 9일 사이클로 옮김 — {(일차, 종목): 예열 방법}. 인클라인 바벨은 8일차 웜업 램프가 따로 있어 뺐다.
 # 같은 날 2026-11-01 사용자 결정 — '갑자기 다른 부위로 넘어가는 자리'도 예열. 방법이 None이면 기본(50% × 6~8)이다.
 # 방법 글자는 종목 카드 · 타이머 띠 · '다음 ▸' 줄에 그대로 뜬다(음성은 '예열 한 세트 먼저'만)
+# 2026-11-14 사용자 — 자리를 옮겨야 하는 종목. 그 종목(또는 같은 슈퍼세트 묶음)이 시작되기 전 휴식에
+# 타이머 노란 띠 + 음성으로 알린다. {(일차, 그날 얹힌 종목 이름): 안내 글자} — 교대표 종목이면 그 사이클에만 걸린다.
+# 글자는 그대로 음성 조각으로 굽힌다(쉼표는 숨)
+MOVE = {
+    ("8", "인클라인 플라이 머신"): "옆 센터 인클라인 플라이 머신으로 이동, 덤벨 들고 가기",
+}
 WU_DEFAULT = "50% × 6~8"
 WARMUP = {
     ("1", "레그 컬"): None,                                       # 패드로 늘어난 자세 · 첫 무릎 굽힘
@@ -1351,6 +1357,8 @@ def build_voice(site, data):
     say.setdefault("드롭세트", "드롭 세트")
     # 2026-10-24 — 예열 1세트 종목 안내 꼬리 · 미세 단계 무게('5 + 핀 + 1' · '8 + 손목 1')를 읽는 토막
     say.setdefault("예열 한 세트 먼저", "예열 한 세트 먼저")
+    for t in MOVE.values():                                # 2026-11-14 자리 이동 안내
+        say.setdefault(t, t)
     for w in ("더하기 핀", "더하기 손목", "더하기"):
         say.setdefault(w, w)
 
@@ -1452,6 +1460,7 @@ def build(xlsx_path, out_path):
     # 사이클 종목 교대(2026-11-02) — 교대표 종목을 일차 시트 종목 자리에 붙인다. 앱이 오늘 사이클로 한쪽을 얹는다
     alts = parse_cycle_alt(wb, wbf)
     data["cycAlt"] = [[a["day"], a["base"], a["v"]["name"], a["side"], a["from"]] for a in alts]
+    data["move"] = {f"{d}|{n}": t for (d, n), t in MOVE.items()}
     for a in alts:
         hit = [e for e in all_ex(data["back"].get(a["day"], {})) if e.get("name") == a["base"]]
         if len(hit) != 1:
@@ -2089,6 +2098,15 @@ function rackLine(e){
   const fs=e&&rackKind(e.name); if(!fs) return "";
   return fs.map(f=>{ const v=rackVal(e.name,f); return v?rackLabel(f,v):""; }).filter(Boolean).join(" · ");
 }
+/* ── 자리 이동 안내 (2026-11-14) — D.move {"일차|종목": 글자}. 그 종목이나 같은 슈퍼세트 묶음이
+   시작되기 전 휴식에 타이머 노란 띠 + 음성. 교대표 종목은 그 사이클에 얹혔을 때만 이름이 맞아 걸린다 */
+function dayOfEx(e){ const days=D[mode]||{};
+  for(const t in days){ const d=days[t]; if(d&&!d.rest&&(d.ex||[]).includes(e)) return [t,d]; } return null; }
+function ssMates(e){ if(!e) return []; const r=e.ss?dayOfEx(e):null;
+  return r ? r[1].ex.filter(x=>x.ss===e.ss) : [e]; }
+const sameBlock=(a,b)=>a===b||!!(a&&b&&a.ss&&a.ss===b.ss&&ssMates(a).includes(b));
+function moveOf(e){ const r=e&&D.move?dayOfEx(e):null; if(!r) return "";
+  for(const x of ssMates(e)){ const t=D.move[r[0]+"|"+x.name]; if(t) return t; } return ""; }
 const startOf = k => OV.lifts[k] ? OV.lifts[k].start : LIFT[k].start;
 
 /* ── 증량 기록 — 이 폰에 남는 실측 ────────────────────────────────
@@ -3440,10 +3458,15 @@ function tmNextSay(idx,at,off){
   if(!TM||idx==null||!voiceOn||!vBuf) return [];
   const cur=TM.st[idx], nx=TM.st[idx+1];
   if(!cur||!nx||nx.e===cur.e) return [];
-  const k=tmNextKeys(nx.e,nx.sets,nx.set);
+  let k=tmNextKeys(nx.e,nx.sets,nx.set);
+  /* 2026-11-14 자리 이동 — 묶음이 바뀌는 휴식이면 맨 앞에 붙인다. 휴식이 짧아 다 못 읊으면 이동 안내만 */
+  const mv=!sameBlock(cur.e,nx.e)?moveOf(nx.e):"";
+  if(mv&&tmHas(mv)) k=[mv,","].concat(k);
   /* 카운트다운이 시작되기 1초 전까지는 끝나야 한다. 리드가 길어진 만큼
      이 여유도 같이 늘어난다 — 안 그러면 안내가 딸깍 위에 얹힌다. */
-  if(off+tmLen(k)>cur.t-(tmLead(cur,nx)+1)) return [];
+  if(off+tmLen(k)>cur.t-(tmLead(cur,nx)+1)){
+    if(!(mv&&tmHas(mv))||off+tmLen([mv])>cur.t-(tmLead(cur,nx)+1)) return [];
+    k=[mv]; }
   return tmSayAll(k,at);
 }
 
@@ -3657,7 +3680,10 @@ function tmPaint(){
   const knE = s.p==="work" ? s.e : (nx ? nx.e : null);
   if(knE&&knE.kn&&!s.wt&&!s.ramp) document.getElementById("tm-set").insertAdjacentHTML("beforeend",
     `<br><span class="tm-kn">⚠ ${esc(knE.kn)}</span>`);
-  const rkE = s.p==="work" ? s.e : (nx ? nx.e : null), rkT = rackLine(rkE);
+  const rkE = s.p==="work" ? s.e : (nx ? nx.e : null), rkT = ssMates(rkE).map(rackLine).filter(Boolean).join(" · ");
+  const mvT = s.p!=="work"&&nx&&!sameBlock(s.e,nx.e) ? moveOf(nx.e) : "";
+  if(mvT) document.getElementById("tm-set").insertAdjacentHTML("beforeend",
+    `<br><span class="tm-kn">➜ ${esc(mvT.replace(/,\s*/g," · "))}</span>`);
   if(rkT) document.getElementById("tm-set").insertAdjacentHTML("beforeend",
     `<br><span class="tm-rk">${esc(rkT)}</span>`);
   tmRecSet(tmRec(s.e));

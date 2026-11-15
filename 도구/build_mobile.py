@@ -2042,6 +2042,7 @@ const RENAMED={"back|3|랫풀다운 (뉴트럴 그립)":"back|3|랫풀다운","b
   "back|1|넥 익스텐션 (플레이트)":"back|4|넥 익스텐션 (플레이트)","back|1|넥 플렉션 (플레이트)":"back|4|넥 플렉션 (플레이트)",
   /* 같은 날 — 4일차 80분이 비어 9일차 백 익스텐션 · 3일차 리스트 컬 2종을 4일차로 */
   "back|9|백 익스텐션 (45도)":"back|4|백 익스텐션 (45도)",
+  "back|9|페이스풀 (로프)":"back|2|페이스풀 (로프)",   /* 2026-11-15 9 → 2일차 레터럴 뒤 */
   "back|3|시티드 리스트 컬(손등 아래)":"back|4|시티드 리스트 컬(손등 아래)","back|3|시티드 리스트 컬(손등 위)":"back|4|시티드 리스트 컬(손등 위)"};
 function renameKeys(o){ let ch=false;
   for(const k in RENAMED){ if(o&&o[k]){ if(!o[RENAMED[k]]) o[RENAMED[k]]=o[k]; delete o[k]; ch=true; } }

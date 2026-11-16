@@ -8,6 +8,7 @@ Claude에게 붙여 넣으면 add로 여기 쌓는다. 같은 날짜 · 종목 �
   python 세트기록.py show --day 2          (2일차 전부 · 종목별 사이클 흐름)
   python 세트기록.py show --ex 벤치         (이름에 '벤치'가 든 종목 · 모든 일차)
   python 세트기록.py show --day 2 --ex 플라이
+  python 세트기록.py time                  (날짜마다 실제 운동 시간 — 첫 세트 ~ 마지막 세트 시각, 2026-11-16부터)
   python 세트기록.py pull                  (구글 시트에서 받아 세트기록.csv를 시트와 같게 — 세션 시작 훅이 부른다)
 
 2026-11-13 자동 저장: 앱이 기록할 때마다 구글 시트(구글시트_세트기록.gs)로 보내고, 세션을 열면 pull.
@@ -21,14 +22,18 @@ from collections import OrderedDict
 from pathlib import Path
 
 CSV = Path(__file__).resolve().parent / "세트기록.csv"
-COLS = ["날짜", "사이클", "일차", "종목", "세트", "무게", "횟수", "달성"]
+COLS = ["날짜", "사이클", "일차", "종목", "세트", "무게", "횟수", "달성", "시각"]  # 시각 2026-11-16 — 세트 끝낸 HH:MM(앱이 오늘 기록할 때만)
 
 
 def load():
     if not CSV.exists():
         return []
     with CSV.open(encoding="utf-8-sig", newline="") as f:
-        return list(csv.DictReader(f))
+        rows = list(csv.DictReader(f))
+    for r in rows:   # 시각 칸이 생기기 전 csv
+        r.setdefault("시각", "")
+        r["시각"] = r["시각"] or ""
+    return rows
 
 
 def save(rows):
@@ -50,7 +55,7 @@ def parse_paste(text, strict=True):
             if not strict:
                 continue
             sys.exit(f"[중단] 칸이 8개가 아닌 줄: {line!r} — 앱 복사 텍스트를 그대로 붙여야 한다(탭 구분)")
-        out.append(dict(zip(COLS, p[:8])))
+        out.append(dict(zip(COLS, (p + [""] * len(COLS))[:len(COLS)])))
     return out
 
 
@@ -436,12 +441,67 @@ def blocks(rows):
                "n": max(max(x["sets"]) for x in out), "sess": out, "summary": summary}
 
 
+def _min(t):
+    try:
+        h, m = t.split(":")
+        return int(h) * 60 + int(m)
+    except (AttributeError, ValueError):
+        return None
+
+
+def sessions(rows):
+    """날짜마다 실제 운동 시간 — 시각이 찍힌 세트의 첫 ~ 마지막. 첫 세트 전 웜업 · 마지막 세트 뒤는 안 들어간다"""
+    by = OrderedDict()
+    for r in sorted(rows, key=lambda r: r["날짜"]):
+        by.setdefault((r["날짜"], r["일차"], r["사이클"]), []).append(r)
+    for (d, day, cyc), rs in by.items():
+        ts = sorted(m for m in (_min(r["시각"]) for r in rs) if m is not None)
+        if not ts:
+            yield {"d": d, "day": day, "cyc": cyc, "n": len(rs), "nt": 0}
+            continue
+        span = ts[-1] - ts[0]
+        if span < 0:   # 자정 넘김
+            span += 24 * 60
+        yield {"d": d, "day": day, "cyc": cyc, "n": len(rs), "nt": len(ts), "span": span,
+               "a": f"{ts[0] // 60:02d}:{ts[0] % 60:02d}", "b": f"{ts[-1] // 60:02d}:{ts[-1] % 60:02d}"}
+
+
+def _sess_line(x):
+    head = f"{x['d']} · {x['day']}일차 · {x['cyc'] or '-'}사이클 · {x['n']}세트"
+    if not x["nt"]:
+        return head + " — 시각 없음(2026-11-16 이전 기록)"
+    miss = f" · 시각 없는 세트 {x['n'] - x['nt']}" if x["n"] > x["nt"] else ""
+    return head + f" — {x['a']} ~ {x['b']} = {x['span']}분{miss}"
+
+
+def cmd_time(a):
+    ss = [x for x in sessions(load()) if not a.day or x["day"] == a.day]
+    timed = [x for x in ss if x["nt"]]
+    for x in ss:
+        if x["nt"] or a.all:
+            print(_sess_line(x))
+    if not timed:
+        print("시각이 찍힌 기록이 아직 없다 — 앱 새 버전으로 기록한 날부터 나온다")
+        return
+    by = OrderedDict()
+    for x in timed:
+        by.setdefault(x["day"], []).append(x["span"])
+    print("\n일차별 평균 (첫 세트 ~ 마지막 세트): " + " · ".join(
+        f"{d}일차 {sum(v) / len(v):.0f}분({len(v)}회)" for d, v in sorted(by.items(), key=lambda kv: int(kv[0]) if kv[0].isdigit() else 99)))
+
+
 def cmd_show(a):
     rows = [r for r in load()
             if (not a.day or r["일차"] == a.day) and (not a.ex or a.ex in r["종목"])]
     if not rows:
         print("해당 기록 없음" + ("" if CSV.exists() else " — 세트기록.csv가 아직 없다"))
         return
+    if a.day and not a.ex:
+        timed = [x for x in sessions(rows) if x["nt"]]
+        if timed:
+            print("실제 운동 시간 (첫 세트 ~ 마지막 세트)")
+            for x in timed:
+                print("  " + _sess_line(x))
     for b in card_order(list(blocks(rows))):
         n = b["n"]
         cw = max([6] + [_w(_cell(x)) for s in b["sess"] for x in s["sets"].values()])
@@ -482,6 +542,10 @@ if __name__ == "__main__":
     p.set_defaults(fn=cmd_add)
     p = sub.add_parser("pull")
     p.set_defaults(fn=cmd_pull)
+    p = sub.add_parser("time")
+    p.add_argument("--day")
+    p.add_argument("--all", action="store_true", help="시각 없는 옛 날짜도 보이기")
+    p.set_defaults(fn=cmd_time)
     p = sub.add_parser("show")
     p.add_argument("--day")
     p.add_argument("--ex")

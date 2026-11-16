@@ -2166,6 +2166,11 @@ function sPut(date,day,name,i,patch){
   const L=x.ex[name]||(x.ex[name]=[]); while(L.length<=i) L.push({});
   Object.assign(L[i],patch);
   for(const f in L[i]) if(L[i][f]===""||L[i][f]==null) delete L[i][f];
+  /* 시각(2026-11-16 사용자 요청 — 실제 운동 시간 재기): 오늘 기록하는 세트가 처음 끝난 순간(✓ · 횟수) 'HH:MM'.
+     나중에 고쳐도 첫 시각 그대로 · 지난 날짜를 채워 넣을 땐 안 찍는다 · 무게 · 횟수 · ✓가 다 지워지면 같이 지운다 */
+  if(!L[i].t&&(L[i].ok||L[i].r)&&date===ymd(new Date())){ const n=new Date();
+    L[i].t=String(n.getHours()).padStart(2,"0")+":"+String(n.getMinutes()).padStart(2,"0"); }
+  if(L[i].t&&!L[i].w&&!L[i].r&&!L[i].ok) delete L[i].t;
   while(L.length&&!Object.keys(L[L.length-1]).length) L.pop();
   if(!L.length) delete x.ex[name];
   if(!Object.keys(x.ex).length) delete SETS[date];
@@ -2232,7 +2237,7 @@ function sRowsOf(d){ const x=SETS[d], out=[]; if(!x) return out;
   const tg=sTags(x.day,x.round,Object.keys(x.ex));
   for(const n in x.ex){ const t=tg[n], nm=t?`${n} [${t}]`:n;
     x.ex[n].forEach((s,i)=>{ if(Object.keys(s).length)
-      out.push([d,x.round||"",x.day||"",nm,i+1,s.w||"",s.r||"",s.ok?"O":""]); }); }
+      out.push([d,x.round||"",x.day||"",nm,i+1,s.w||"",s.r||"",s.ok?"O":"",s.t||""]); }); }
   return out; }
 function sSync(){
   if(!SYNC_URL||!SDIRTY.length||syncBusy||!navigator.onLine) return;
@@ -2289,7 +2294,7 @@ function setLogHTML(e,n){
 }
 /* PC로 — 탭 구분 한 줄 = 한 세트. Claude가 받아서 세트기록.csv에 합친다(같은 날짜 · 종목 · 세트는 덮어씀) */
 function sExport(){
-  const out=["#세트기록 v1","날짜\t사이클\t일차\t종목\t세트\t무게\t횟수\t달성"];
+  const out=["#세트기록 v1","날짜\t사이클\t일차\t종목\t세트\t무게\t횟수\t달성\t시각"];
   Object.keys(SETS).sort().forEach(d=>{ sRowsOf(d).forEach(r=>out.push(r.join("\t"))); });
   return out.join("\n");
 }

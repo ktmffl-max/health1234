@@ -1976,14 +1976,17 @@ const LIFT = D.config.lifts;
 /* ── 사이클 종목 교대 (2026-11-02 · 엑셀 '사이클_종목교대') ──────────────
    같은 자리 · 같은 세트에서 사이클마다 종목만 바뀐다(8일차 인클라인 바벨 ↔ 정지 벤치). 종목 객체의 cv에
    양쪽(odd · even)이 다 실려 있고, 오늘 사이클 쪽을 객체에 그대로 얹는다 — 카드 · 타이머 · 음성 · 덮어쓰기가
-   전부 얹힌 이름과 중량을 본다. 사이클 번호는 그립 회전과 같은 셈(1일차 기준일에서 9일씩 · 디로드도 한 번).
-   덮어쓰기 정리보다 먼저 돌아야 해서 아래 달력 함수를 못 쓰고 날짜 셈을 따로 둔다(기준일 키 wk-canchor 같음) */
+   전부 얹힌 이름과 중량을 본다. 사이클 번호는 그립 회전과 같은 셈(1일차 기준일에서 사이클 길이씩 · 디로드도 한 번).
+   덮어쓰기 정리보다 먼저 돌아야 해서 아래 달력 함수를 못 쓰고 날짜 셈을 따로 둔다 — 기준일 키는 아래 CAKEY와
+   같아야 한다(wk-canchor10). [2026-11-17] 11/14 10일 사이클 전환 때 CAKEY만 바뀌고 여기는 옛 9일 키
+   wk-canchor를 읽고 있었다 — 폰에 옛 기준일이 남아 있으면 교대 홀짝이 달력과 어긋날 수 있었다.
+   CAKEY는 아래에 const로 선언돼 여기서 먼저 부르면 TDZ라 문자열을 그대로 쓴다 — CAKEY를 바꾸면 여기도 */
 /* 시간표 탭(2026-11-05)이 다른 사이클을 계산하는 동안만 잠깐 그 사이클 번호를 쥔다 — 평소엔 null(오늘) */
 let VIEW_R=null;
 function altRound(){
   if(VIEW_R!=null) return VIEW_R;
   let a=(D.cycAnchor&&D.cycAnchor.date)||null;
-  try{ const o=localStorage.getItem("wk-canchor"); if(o) a=o; }catch(e){}
+  try{ const o=localStorage.getItem("wk-canchor10"); if(o) a=o; }catch(e){}
   if(!a) return null;
   const p=a.split("-").map(Number), t=new Date();
   const n=Math.round((new Date(t.getFullYear(),t.getMonth(),t.getDate())-new Date(p[0],p[1]-1,p[2]))/86400000);

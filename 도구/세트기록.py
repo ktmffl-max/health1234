@@ -149,14 +149,51 @@ def write_view():
 APP = CSV.parent.parent / "docs" / "index.html"   # 앱 배포본 — 카드 순서는 여기서 읽는다(build_mobile.py가 워크북에서 만든 것)
 
 
-def _app_days():
-    """앱의 9일 사이클 일차별 종목 이름 목록(카드 순서). 사이클 교대 종목(정지 벤치 ↔ 인클라인 등)은
-    짝 종목 바로 뒤에 끼운다. 앱 파일이 없거나 못 읽으면 빈 dict — 그러면 예전처럼 이름순"""
+def _app_data():
+    """앱 배포본의 계획 데이터(const D). 못 읽으면 빈 dict"""
     import json
     try:
         t = APP.read_text(encoding="utf-8")
         D, _ = json.JSONDecoder().raw_decode(t[t.index("const D = ") + len("const D = "):])
+        return D
     except (OSError, ValueError):
+        return {}
+
+
+def _app_targets():
+    """(일차, 종목) → 목표 횟수. 앱에서 ✓만 누르고 횟수를 비우면 '목표 달성'으로 저장된다 — 보기 표에는
+    그 목표 숫자를 넣는다(2026-11-17 사용자). '12~15'처럼 범위면 아래 끝(범위 달성이니 최소 그만큼).
+    지금 앱 계획 기준이라 나중에 목표가 바뀌면 옛 기록도 새 목표로 읽힌다"""
+    import re
+    out = {}
+    for d, day in (_app_data().get("back") or {}).items():
+        ex = (day.get("ex") or []) + [x for _, g in (day.get("groups") or []) for x in g]
+        for e in ex:
+            for v in [e] + [x for x in (e.get("cv") or {}).values() if isinstance(x, dict)]:
+                m = re.search(r"\d+", str(v.get("r") or ""))
+                if v.get("name") and m:
+                    out.setdefault((d, v["name"]), m.group())
+    return out
+
+
+def _fill_reps(rows):
+    """횟수 칸이 비고 달성(O)인 세트 — 앱 목표 횟수로 채운 사본. 원본 csv는 그대로(시트가 원본)"""
+    tg = _app_targets()
+    out = []
+    for r in rows:
+        if not r["횟수"] and r["달성"] == "O":
+            n = tg.get((str(r["일차"]), r["종목"].split(" [")[0]))
+            if n:
+                r = dict(r, 횟수=n)
+        out.append(r)
+    return out
+
+
+def _app_days():
+    """앱의 9일 사이클 일차별 종목 이름 목록(카드 순서). 사이클 교대 종목(정지 벤치 ↔ 인클라인 등)은
+    짝 종목 바로 뒤에 끼운다. 앱 파일이 없거나 못 읽으면 빈 dict — 그러면 예전처럼 이름순"""
+    D = _app_data()
+    if not D:
         return {}
     out = {}
     for d, day in (D.get("back") or {}).items():
@@ -396,6 +433,7 @@ def blocks(rows):
     등 그립 회전 종목은 '랫풀다운 [오버 넓게 · 양손]'처럼 그립이 이름에 붙어 온다(앱 2026-11-13) —
     그립마다 따로 표 · 같은 그립끼리만 '지난번 대비'. 같은 종목의 그립 표는 나란히"""
     by_ex = OrderedDict()
+    rows = _fill_reps(rows)
     for r in sorted(rows, key=lambda r: (r["일차"], r["종목"].split(" [")[0], r["날짜"], int(r["세트"] or 0))):
         by_ex.setdefault((r["일차"], r["종목"]), OrderedDict()).setdefault(
             (r["날짜"], r["사이클"]), {})[int(r["세트"] or 0)] = r

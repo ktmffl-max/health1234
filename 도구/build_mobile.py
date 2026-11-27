@@ -228,6 +228,10 @@ MICRO = {
 FALLBACK = {
     ("3", "케이블 외회전 (앉아서 · 팔 옆구리)"): "6",
     ("3", "프론 Y 레이즈 (인클라인 벤치)"): "6",
+    # 같은 날 — 승모 상부 1 · 9일차 → 6 · 10일차. 원래 자리가 보충 자리보다 앞 일차면 '같은 사이클'(6 → 9),
+    # 뒤 일차면 '지난 사이클'(10 → 다음 1)을 본다(앱 applyFb)
+    ("9", "오버헤드 슈러그(스미스)"): "6",
+    ("1", "덤벨 슈러그"): "10",
 }
 MOVE = {
     ("8", "인클라인 플라이 머신"): "옆 센터 인클라인 플라이 머신으로 이동, 덤벨 들고 가기",
@@ -1529,9 +1533,11 @@ def build(xlsx_path, out_path):
     # 보조 추적 종목이 어느 일차에 있는지 — 증량 탭이 일차별로 묶는다. 없는 종목은 '' (추적 안 함)
     for k, L in data["config"]["lifts"].items():
         if L.get("acc"):
-            L["day"] = next((d for d in order for e0 in all_ex(data["back"][d])
-                             for e in [e0] + list((e0.get("cv") or {}).values())
-                             if e.get("lift") == k and e.get("trk")), "")
+            # 2026-11-27 자동 보충 — 같은 추적 종목이 0세트 보충 자리(9일차 오버헤드 슈러그)에도 있어서 세트 있는 날을 먼저 고른다
+            hits = [(d, e) for d in order for e0 in all_ex(data["back"][d])
+                    for e in [e0] + list((e0.get("cv") or {}).values())
+                    if e.get("lift") == k and e.get("trk")]
+            L["day"] = next((d for d, e in hits if e.get("s")), next((d for d, e in hits), ""))
 
     # 배포용 사본. 파일명을 index.html로 고정해야 사이트 주소 루트가 열리고,
     # 워크북이 v15, v16으로 올라가도 폰 홈화면 바로가기가 안 깨진다.
@@ -2534,14 +2540,14 @@ function exHTML(e,prefix,sets,timed){
      엑셀도 조건부서식($E=0)으로 같은 줄을 연회색 처리한다. 되살릴 수 있게 행은 남긴다. */
   if(n===0) return `<article class="ex hold"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
-      <div class="ex-t"><h4>${esc(e.name)}</h4>${e.fb?`<div class="grip">${esc(e.fb.d)}일차로 옮김 · 지난 사이클 ${esc(e.fb.d)}일차에 했음 → 보류 (안 했으면 여기서 ${e.fb.s}세트)</div>`:""}<div class="mg">${esc(e.mg)}</div></div>
+      <div class="ex-t"><h4>${esc(e.name)}</h4>${e.fb?`<div class="grip">${esc(e.fb.d)}일차로 옮김 · ${e.fbSame?"이번":"지난"} 사이클 ${esc(e.fb.d)}일차에 했음 → 보류 (안 했으면 여기서 ${e.fb.s}세트)</div>`:""}<div class="mg">${esc(e.mg)}</div></div>
       <div class="ex-p">${e.s===0 ? `<b class="hold-w">보류</b><span class="num">${esc(e.r)}</span>`
         : `<b class="hold-w">${dlOn()?"디로드 — 쉼":e.rw+"주차 복귀"}</b><span class="num">설계 ${e.s} × ${esc(e.r)}</span>`}
       </div></div></article>`;
   const gp = mode==="back" ? gripOf(e) : null;
   return `<article class="ex"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
-      <div class="ex-t"><h4>${esc(gp&&e.gname?e.gname:e.name)}</h4>${gp?`<div class="grip">그립 · ${esc(gp.t)} <i>(회전 ${gp.n})</i></div>${gp.cue?`<div class="grip cue">▸ ${esc(gp.cue)}</div>`:""}`:""}${e.cv&&e.cvf?(e.cvs==="on"?"":`<div class="grip">${e.cvf-1}사이클까지 <i>(${e.cvf}사이클부터 ${esc(e.cv.on.name)})</i></div>`):e.cv&&ALT_ON?`<div class="grip">사이클 교대 · ${ALT_ON==="odd"?"홀수":"짝수"} 사이클 <i>(다음 사이클은 ${esc(e.cv[ALT_ON==="odd"?"even":"odd"].name)})</i></div>`:""}${e.kn?`<div class="kn">⚠ ${esc(e.kn)}</div>`:""}${e.fb?`<div class="grip">${e.fbOn?`${esc(e.fb.d)}일차 보충 · 지난 사이클${e.fbR>=1?"("+e.fbR+")":""} ${esc(e.fb.d)}일차 기록 없음 → 오늘 여기서 ${e.fb.s}세트`:`${esc(e.fb.d)}일차로 옮김 · 지난 사이클 ${esc(e.fb.d)}일차에 했음 → 보류`}</div>`:""}${e.wu?`<div class="grip" style="color:var(--sq)">예열 · ${esc(wuT(e,key))}</div>`:""}<div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
+      <div class="ex-t"><h4>${esc(gp&&e.gname?e.gname:e.name)}</h4>${gp?`<div class="grip">그립 · ${esc(gp.t)} <i>(회전 ${gp.n})</i></div>${gp.cue?`<div class="grip cue">▸ ${esc(gp.cue)}</div>`:""}`:""}${e.cv&&e.cvf?(e.cvs==="on"?"":`<div class="grip">${e.cvf-1}사이클까지 <i>(${e.cvf}사이클부터 ${esc(e.cv.on.name)})</i></div>`):e.cv&&ALT_ON?`<div class="grip">사이클 교대 · ${ALT_ON==="odd"?"홀수":"짝수"} 사이클 <i>(다음 사이클은 ${esc(e.cv[ALT_ON==="odd"?"even":"odd"].name)})</i></div>`:""}${e.kn?`<div class="kn">⚠ ${esc(e.kn)}</div>`:""}${e.fb&&e.fbOn?`<div class="grip">${esc(e.fb.d)}일차 보충 · ${e.fbSame?"이번":"지난"} 사이클${e.fbR>=1?"("+e.fbR+")":""} ${esc(e.fb.d)}일차 기록 없음 → 오늘 여기서 ${e.fb.s}세트</div>`:""}${e.wu?`<div class="grip" style="color:var(--sq)">예열 · ${esc(wuT(e,key))}</div>`:""}<div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
       <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${wEd?'edited':''}"${wAttr}>${esc(w)}</span></div></div>
     ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${armWk(e,e.wk)}초${armWk(e,e.wk)!==e.wk?` (${gp&&gp.arm}${gp&&gp.arm==="원암"?" · 좌우":""})`:""} · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button><span class="tm-none wk-ed${OVT[key]?" edited":""}" data-wkkey="${escAttr(key)}">수행 ${e.wk}초 &#9998;</span></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
@@ -4111,7 +4117,8 @@ function reAlt(){
   applyFb();
 }
 /* ── 자동 보충 (2026-11-27 사용자) ── 보충 자리(엑셀 0세트 · e.fb = {d: 원래 자리 일차, s: 그 세트 수})는
-   지난 사이클 그 일차에 같은 종목 세트 기록(✓나 횟수)이 하나도 없으면 e.fb.s세트로 켜지고, 있으면 0(보류)으로 내려간다.
+   가장 가까운 앞의 그 일차에 같은 종목 세트 기록(✓나 횟수)이 하나도 없으면 e.fb.s세트로 켜지고, 있으면 0(보류)으로 내려간다.
+   원래 자리가 보충 자리보다 앞 일차면 같은 사이클(6 → 9일차 오버헤드 슈러그), 뒤 일차면 지난 사이클(6 → 다음 3 · 10 → 다음 1).
    종목마다 따로 본다. 사이클은 altRound()라 시간표(VIEW_R)도 그 사이클 기준. 첫 사이클(앞 사이클 없음)은 켠다 */
 function fbDone(round,d,name){
   for(const dt in SETS){ const x=SETS[dt]; if(!x||String(x.day)!==String(d)) continue;
@@ -4124,9 +4131,10 @@ function applyFb(){
   const r=altRound();
   for(const d in (D.back||{})){ const day=D.back[d]; if(!day||day.rest) continue;
     allEx(day).forEach(e=>{ if(!e.fb) return;
-      const pr=r!=null?r-1:null;
+      const same=D.backOrder.indexOf(String(e.fb.d))<D.backOrder.indexOf(String(d));
+      const pr=r!=null?(same?r:r-1):null;
       const on=pr!=null&&!(pr>=1&&fbDone(pr,e.fb.d,e.name));
-      e.fbOn=on; e.fbR=pr; e.s=on?e.fb.s:0; }); }
+      e.fbOn=on; e.fbR=pr; e.fbSame=same; e.s=on?e.fb.s:0; }); }
 }
 /* ── 시간표 (2026-11-05 사용자 요청) ── 폰에서 고친 수행 초 · 그립 회전 원암 · 사이클 교대 · 디로드 세트까지
    얹은 채로 세션 타이머와 같은 계산(tmSteps — 준비 5초 + 세트 · 휴식, 마지막 휴식 뺌)을 일차마다 돌린다.

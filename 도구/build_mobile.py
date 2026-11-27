@@ -222,6 +222,13 @@ MICRO = {
 # 2026-11-14 사용자 — 자리를 옮겨야 하는 종목. 그 종목(또는 같은 슈퍼세트 묶음)이 시작되기 전 휴식에
 # 타이머 노란 띠 + 음성으로 알린다. {(일차, 그날 얹힌 종목 이름): 안내 글자} — 교대표 종목이면 그 사이클에만 걸린다.
 # 글자는 그대로 음성 조각으로 굽힌다(쉼표는 숨)
+# 2026-11-27 사용자 — 자동 보충. {(보충 자리 일차, 종목): 원래 자리 일차}. 보충 자리는 엑셀에서 0세트(합계에서 빠짐)인 줄이고,
+# 앱이 그 일차를 그릴 때마다 '지난 사이클 원래 자리 일차'의 세트 기록(✓나 횟수)을 본다 — 그 종목이 하나도 없으면
+# 원래 자리의 세트 수로 켜고, 있으면 0(보류)으로 내린다. 무게는 두 자리가 같이 간다(EX_LINK)
+FALLBACK = {
+    ("3", "케이블 외회전 (앉아서 · 팔 옆구리)"): "6",
+    ("3", "프론 Y 레이즈 (인클라인 벤치)"): "6",
+}
 MOVE = {
     ("8", "인클라인 플라이 머신"): "옆 센터 인클라인 플라이 머신으로 이동, 덤벨 들고 가기",
 }
@@ -1507,6 +1514,18 @@ def build(xlsx_path, out_path):
         for x in (v, e["cv"][other]):
             if x.get("trk") and x.get("lift") in data["config"]["lifts"]:
                 data["config"]["lifts"][x["lift"]]["lb"] = 2
+    # 자동 보충(2026-11-27) — 보충 자리에 원래 자리를 적어 둔다(앱 applyFb)
+    for (d, name), src in FALLBACK.items():
+        hit = [e for e in all_ex(data["back"].get(d, {})) if e.get("name") == name]
+        org = [e for e in all_ex(data["back"].get(src, {})) if e.get("name") == name]
+        if len(hit) != 1 or len(org) != 1:
+            sys.exit(f"[중단] 자동 보충 '{d}일차 {name}' ← {src}일차 — 두 일차 시트에 같은 이름의 종목이 하나씩 있어야 합니다"
+                     f"(보충 자리 {len(hit)} · 원래 자리 {len(org)}).")
+        if hit[0].get("s") != 0 or not org[0].get("s"):
+            sys.exit(f"[중단] 자동 보충 '{d}일차 {name}' — 보충 자리는 엑셀 0세트, 원래 자리({src}일차)는 1세트 이상이어야 합니다.")
+        if hit[0].get("cv") or hit[0].get("grip"):
+            sys.exit(f"[중단] 자동 보충 '{d}일차 {name}' — 교대나 그립 회전이 걸린 종목은 보충 자리로 못 씁니다.")
+        hit[0]["fb"] = {"d": src, "s": org[0]["s"]}
     # 보조 추적 종목이 어느 일차에 있는지 — 증량 탭이 일차별로 묶는다. 없는 종목은 '' (추적 안 함)
     for k, L in data["config"]["lifts"].items():
         if L.get("acc"):
@@ -2512,14 +2531,14 @@ function exHTML(e,prefix,sets,timed){
      엑셀도 조건부서식($E=0)으로 같은 줄을 연회색 처리한다. 되살릴 수 있게 행은 남긴다. */
   if(n===0) return `<article class="ex hold"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
-      <div class="ex-t"><h4>${esc(e.name)}</h4><div class="mg">${esc(e.mg)}</div></div>
+      <div class="ex-t"><h4>${esc(e.name)}</h4>${e.fb?`<div class="grip">${esc(e.fb.d)}일차로 옮김 · 지난 사이클 ${esc(e.fb.d)}일차에 했음 → 보류 (안 했으면 여기서 ${e.fb.s}세트)</div>`:""}<div class="mg">${esc(e.mg)}</div></div>
       <div class="ex-p">${e.s===0 ? `<b class="hold-w">보류</b><span class="num">${esc(e.r)}</span>`
         : `<b class="hold-w">${dlOn()?"디로드 — 쉼":e.rw+"주차 복귀"}</b><span class="num">설계 ${e.s} × ${esc(e.r)}</span>`}
       </div></div></article>`;
   const gp = mode==="back" ? gripOf(e) : null;
   return `<article class="ex"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
-      <div class="ex-t"><h4>${esc(gp&&e.gname?e.gname:e.name)}</h4>${gp?`<div class="grip">그립 · ${esc(gp.t)} <i>(회전 ${gp.n})</i></div>${gp.cue?`<div class="grip cue">▸ ${esc(gp.cue)}</div>`:""}`:""}${e.cv&&e.cvf?(e.cvs==="on"?"":`<div class="grip">${e.cvf-1}사이클까지 <i>(${e.cvf}사이클부터 ${esc(e.cv.on.name)})</i></div>`):e.cv&&ALT_ON?`<div class="grip">사이클 교대 · ${ALT_ON==="odd"?"홀수":"짝수"} 사이클 <i>(다음 사이클은 ${esc(e.cv[ALT_ON==="odd"?"even":"odd"].name)})</i></div>`:""}${e.kn?`<div class="kn">⚠ ${esc(e.kn)}</div>`:""}${e.wu?`<div class="grip" style="color:var(--sq)">예열 · ${esc(wuT(e,key))}</div>`:""}<div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
+      <div class="ex-t"><h4>${esc(gp&&e.gname?e.gname:e.name)}</h4>${gp?`<div class="grip">그립 · ${esc(gp.t)} <i>(회전 ${gp.n})</i></div>${gp.cue?`<div class="grip cue">▸ ${esc(gp.cue)}</div>`:""}`:""}${e.cv&&e.cvf?(e.cvs==="on"?"":`<div class="grip">${e.cvf-1}사이클까지 <i>(${e.cvf}사이클부터 ${esc(e.cv.on.name)})</i></div>`):e.cv&&ALT_ON?`<div class="grip">사이클 교대 · ${ALT_ON==="odd"?"홀수":"짝수"} 사이클 <i>(다음 사이클은 ${esc(e.cv[ALT_ON==="odd"?"even":"odd"].name)})</i></div>`:""}${e.kn?`<div class="kn">⚠ ${esc(e.kn)}</div>`:""}${e.fb?`<div class="grip">${e.fbOn?`${esc(e.fb.d)}일차 보충 · 지난 사이클${e.fbR>=1?"("+e.fbR+")":""} ${esc(e.fb.d)}일차 기록 없음 → 오늘 여기서 ${e.fb.s}세트`:`${esc(e.fb.d)}일차로 옮김 · 지난 사이클 ${esc(e.fb.d)}일차에 했음 → 보류`}</div>`:""}${e.wu?`<div class="grip" style="color:var(--sq)">예열 · ${esc(wuT(e,key))}</div>`:""}<div class="mg">${esc(e.mg)}${e.ind?` · 간접 ${esc(e.ind)}`:""}${e.ss?` · <b class="ss">슈퍼세트 ${esc(e.ss)}</b>`:""}${e.drop?` · <b class="drop">마지막 세트 드롭</b>`:""}${e.wu?` · <b class="wu">예열 1세트</b>`:""}</div></div>
       <div class="ex-p"><b class="num">${n} × ${esc(e.r)}</b><span class="num ex-w ${wEd?'edited':''}"${wAttr}>${esc(w)}</span></div></div>
     ${e.wk?`<div class="ex-go"><button class="tm-go" data-tm="${escAttr(e.name)}">&#9654; 타이머<b>${armWk(e,e.wk)}초${armWk(e,e.wk)!==e.wk?` (${gp&&gp.arm}${gp&&gp.arm==="원암"?" · 좌우":""})`:""} · 휴식 ${restLabel(e)}${e.drop?` · 드롭 +${e.drop}초`:""}</b></button><span class="tm-none wk-ed${OVT[key]?" edited":""}" data-wkkey="${escAttr(key)}">수행 ${e.wk}초 &#9998;</span></div>`
       :timed?`<div class="ex-go"><span class="tm-none">타이머 없음 — 엑셀 G·H열(수행 초 · 휴식 초)이 비어 있다</span></div>`:""}
@@ -2580,6 +2599,15 @@ function micHTML(e,key,w){
    한 방향이다: 수를 고치면 월도 같은 값으로 · 월만 고치면 그 날만 바뀐다(다음에 수를 고치면 다시 맞춰진다) */
 /* 2026-11-01 v22 9일 사이클 — 원암 케이블 레터럴은 5일차 하나뿐이라 묶을 것이 없다 */
 const EX_LINK = {};
+/* 2026-11-27 자동 보충 — 보충 자리와 원래 자리(6 ↔ 3일차)는 무게를 같이 고친다(양쪽).
+   한쪽에만 폰 덮어쓰기가 있으면 다른 쪽으로 복사 — 3일차에서 쓰던 외회전 · Y 레이즈 무게가 6일차로 따라간다.
+   allEx는 아래에 const라 여기선 풀어 쓴다 */
+for(const d in (D.back||{})){ const day=D.back[d]; if(!day||day.rest) continue;
+  (day.ex||[]).concat(day.groups?day.groups.reduce((a,g)=>a.concat(g[1]),[]):[]).forEach(e=>{ if(!e.fb) return;
+    const a="back|"+d+"|"+e.name, b="back|"+e.fb.d+"|"+e.name, xa=exByKey(a), xb=exByKey(b); if(!xa||!xb) return;
+    (EX_LINK[a]=EX_LINK[a]||[]).push(b); (EX_LINK[b]=EX_LINK[b]||[]).push(a);
+    if(OV.ex[a]&&!OV.ex[b]){ OV.ex[b]={w:OV.ex[a].w, base:xb.w}; saveOV(); }
+    else if(OV.ex[b]&&!OV.ex[a]){ OV.ex[a]={w:OV.ex[b].w, base:xa.w}; saveOV(); } }); }
 function setExW(key,v){
   const e=exByKey(key); if(!e) return;
   [key].concat(EX_LINK[key]||[]).forEach(k=>{ const x=exByKey(k); if(!x) return;
@@ -4077,6 +4105,25 @@ const tabsFor = m => (m==="home"
 function reAlt(){
   if(applyAlt()) altEach((e,d)=>{ e.wk0=e.wk; const o=OVT["back|"+d+"|"+e.name]; if(o&&o.base===e.wk0) e.wk=o.wk; });
   applyOrd();
+  applyFb();
+}
+/* ── 자동 보충 (2026-11-27 사용자) ── 보충 자리(엑셀 0세트 · e.fb = {d: 원래 자리 일차, s: 그 세트 수})는
+   지난 사이클 그 일차에 같은 종목 세트 기록(✓나 횟수)이 하나도 없으면 e.fb.s세트로 켜지고, 있으면 0(보류)으로 내려간다.
+   종목마다 따로 본다. 사이클은 altRound()라 시간표(VIEW_R)도 그 사이클 기준. 첫 사이클(앞 사이클 없음)은 켠다 */
+function fbDone(round,d,name){
+  for(const dt in SETS){ const x=SETS[dt]; if(!x||String(x.day)!==String(d)) continue;
+    const r=x.round!=null?x.round:((cycDayOf(dt)||{}).round);
+    if(r!==round) continue;
+    const L=x.ex&&x.ex[name]; if(L&&L.some(s=>s&&(s.ok||s.r))) return true; }
+  return false;
+}
+function applyFb(){
+  const r=altRound();
+  for(const d in (D.back||{})){ const day=D.back[d]; if(!day||day.rest) continue;
+    allEx(day).forEach(e=>{ if(!e.fb) return;
+      const pr=r!=null?r-1:null;
+      const on=pr!=null&&!(pr>=1&&fbDone(pr,e.fb.d,e.name));
+      e.fbOn=on; e.fbR=pr; e.s=on?e.fb.s:0; }); }
 }
 /* ── 시간표 (2026-11-05 사용자 요청) ── 폰에서 고친 수행 초 · 그립 회전 원암 · 사이클 교대 · 디로드 세트까지
    얹은 채로 세션 타이머와 같은 계산(tmSteps — 준비 5초 + 세트 · 휴식, 마지막 휴식 뺌)을 일차마다 돌린다.

@@ -192,6 +192,7 @@ MICRO = {
     "케이블 프론트 레이즈": "pin",   # 2026-11-15 5일차 신설(프로트랙션과 SS)
     "원암 케이블 리스트 컬 (핑거 롤)": "pin",   # 2026-11-15 1일차 신설(손등 위 리스트 컬과 SS)   # 2026-11-15 1일차 트랩바 슈러그 → 덤벨(트랩바 없음)
     "인클라인 플라이 머신": "pin",   # 2026-10-26 월 3번 덤벨 → 머신(옆 센터)
+    "인클라인 체스트 프레스 머신": "pin",   # 2026-11-28 8일차 홀수 사이클 11번 — 옆 센터 인클라인 플라이 머신 대신(사용자)
     "인클라인 덤벨 프로트랙션": "wrist", "덤벨 숄더 프레스": "wrist",
     "인클라인 덤벨 로우(오버그립)": "wrist",
     "딥스": "assist",
@@ -234,7 +235,7 @@ FALLBACK = {
     ("1", "덤벨 슈러그"): "10",
 }
 MOVE = {
-    ("8", "인클라인 플라이 머신"): "옆 센터 인클라인 플라이 머신으로 이동, 덤벨 들고 가기",
+    ("8", "인클라인 체스트 프레스 머신"): "옆 센터 인클라인 체스트 프레스 머신으로 이동, 덤벨 들고 가기",   # 2026-11-28 플라이 머신 → 프레스 머신
 }
 WU_DEFAULT = "{50%} × 6~8"   # 2026-11-15 사용자 — 앱이 늘 그 종목 지금 무게로 kg 계산(wuT)
 WARMUP = {
@@ -2101,7 +2102,9 @@ const RENAMED={"back|3|랫풀다운 (뉴트럴 그립)":"back|3|랫풀다운","b
   "back|7|프론 Y 레이즈 (인클라인 벤치)":"back|10|프론 Y 레이즈 (인클라인 벤치)",
   /* 같은 날 — 9일차 선택 보조 둘 → 10일차 5번(펀치 · 외회전 앞) · 8번(크런치 · 맨 끝) */
   "back|9|케이블 업워드 펀치 (원암)":"back|10|케이블 업워드 펀치 (원암)",
-  "back|9|스탠딩 케이블 크런치":"back|10|스탠딩 케이블 크런치"};
+  "back|9|스탠딩 케이블 크런치":"back|10|스탠딩 케이블 크런치",
+  /* 2026-11-28 사용자 — 8일차 홀수 사이클 11번 인클라인 플라이 머신 → 인클라인 체스트 프레스 머신(옆 센터) */
+  "back|8|인클라인 플라이 머신":"back|8|인클라인 체스트 프레스 머신"};
 function renameKeys(o){ let ch=false;
   for(const k in RENAMED){ if(o&&o[k]){ if(!o[RENAMED[k]]) o[RENAMED[k]]=o[k]; delete o[k]; ch=true; } }
   return ch; }
@@ -2316,6 +2319,11 @@ document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==
 /* 2026-11-13 등 이름에 그립 꼬리표가 붙었다 — 시트의 옛 이름 줄을 갈아끼우게 한 번 전부 다시 보낸다 */
 try{ if(localStorage.getItem("wk-sync-v")!=="3"){ SDIRTY=Array.from(new Set(SDIRTY.concat(Object.keys(SETS)))); syncSaveState();
   localStorage.setItem("wk-sync-v","3"); } }catch(e){}
+/* 2026-11-28 사용자 — 8일차 인클라인 플라이 머신 → 인클라인 체스트 프레스 머신. 그날은 이미 프레스 머신에서 하고 옛 이름으로
+   적었다 — 그 날짜 기록만 새 이름으로 옮기고(지난번 비교가 이어지게) 시트에도 그 날짜를 다시 보낸다. 한 번만 */
+try{ if(localStorage.getItem("wk-sets-fix")!=="20261128"){ const d="2026-11-28", x=SETS[d], a="인클라인 플라이 머신", b="인클라인 체스트 프레스 머신";
+  if(x&&x.ex&&x.ex[a]&&!x.ex[b]){ x.ex[b]=x.ex[a]; delete x.ex[a]; sSave(); if(SDIRTY.indexOf(d)<0) SDIRTY.push(d); syncSaveState(); }
+  localStorage.setItem("wk-sets-fix","20261128"); } }catch(e){}
 setTimeout(sSync,1500);
 const sPlan = w => String(w||"").replace(/\s*kg$/,"");
 function sToggle(date,day,name,i,pw){

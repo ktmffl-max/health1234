@@ -731,6 +731,31 @@ try{ if(localStorage.getItem("wk-sync-v")!=="3"){ SDIRTY=Array.from(new Set(SDIR
 try{ if(localStorage.getItem("wk-sets-fix")!=="20261128"){ const d="2026-11-28", x=SETS[d], a="인클라인 플라이 머신", b="인클라인 체스트 프레스 머신";
   if(x&&x.ex&&x.ex[a]&&!x.ex[b]){ x.ex[b]=x.ex[a]; delete x.ex[a]; sSave(); if(SDIRTY.indexOf(d)<0) SDIRTY.push(d); syncSaveState(); }
   localStorage.setItem("wk-sets-fix","20261128"); } }catch(e){}
+/* 2026-11-28 사용자 — 새벽 8일차 뒤 저녁 5시에 9일차를 당겨 했는데, 9일차 화면이 11/19(2사이클 9일차) 칸을 열어 그 위에 적었다.
+   그 10종목을 11/29(3사이클 9일차 = 달력상 그 세션 날)로 옮기고, 11/19는 원래 값(PC 세트기록_보기 사본 · 11/28 09:42)으로 되돌린다.
+   시각은 11/19 새벽 것이라 11/19에 남기고 옮긴 쪽엔 안 붙인다. 원암 프리처 해머 컬은 11/19엔 없던 종목이라 옮기기만 한다.
+   11/19에 원암 프리처 해머 컬이 있을 때(= 덮어쓴 상태)만 · 11/29에 그 종목이 이미 있으면 손대지 않는다. 한 번만.
+   cycDayOf는 아래에서 선언되는 CANCHOR를 읽어 여기서 못 부른다 — 사이클 3은 적어 둔다 */
+try{ if(localStorage.getItem("wk-sets-fix2")!=="20261128b"){
+  const src="2026-11-19", dst="2026-11-29", x=SETS[src], P="원암 프리처 해머 컬";
+  const O={"EZ바 컬":[[20,8,1],[20,12,1],[25,8,1]],
+    "어시스트 딥스 (상체 세워서)":[[55,8,1],[55,15,1],[55,12,1]],
+    "케이블 해머 컬 (로프)":[[32,15,1],[34,15,0],[32,15,1]],
+    "원암 오버헤드 케이블 익스텐션":[[10,12,1],[12,15,1],[12,12,1]],
+    "스파이더 컬":[[7,20,1],[9,15,1]],
+    "인클라인 덤벨 스컬크러셔":[[7,12,1],[7,12,1],[7,10,1],[7,9,1]],
+    "베이지안 케이블 컬":[[5,15,1],[5,15,1]],
+    "인클라인 덤벨 컬":[[7,15,1],[7,11,1],[7,12,1],[7,12,1]],
+    "원암 케이블 푸쉬다운":[[11,13,1],[11,12,1],[11,11,1],[11,10,1],[11,10,1],[11,10,1],[11,10,1]]};
+  const N=Object.keys(O).concat([P]), y0=SETS[dst];
+  if(x&&x.ex&&String(x.day)==="9"&&x.ex[P]&&!(y0&&y0.ex&&N.some(n=>y0.ex[n]))){
+    const y=y0||(SETS[dst]={ex:{}}); if(!y.ex) y.ex={}; y.day=x.day; y.round=3;
+    N.forEach(n=>{ const L=x.ex[n]; if(!L) return;
+      y.ex[n]=L.map(s=>{ const o=Object.assign({},s); delete o.t; return o; });
+      if(O[n]) x.ex[n]=O[n].map((v,i)=>{ const o={w:String(v[0]),r:String(v[1])}; if(v[2]) o.ok=1; if(L[i]&&L[i].t) o.t=L[i].t; return o; });
+      else delete x.ex[n]; });
+    sSave(); [src,dst].forEach(d=>{ if(SDIRTY.indexOf(d)<0) SDIRTY.push(d); }); syncSaveState(); }
+  localStorage.setItem("wk-sets-fix2","20261128b"); } }catch(e){}
 setTimeout(sSync,1500);
 const sPlan = w => String(w||"").replace(/\s*kg$/,"");
 function sToggle(date,day,name,i,pw){
@@ -738,13 +763,16 @@ function sToggle(date,day,name,i,pw){
   if(s.ok) sPut(date,day,name,i,{ok:""});
   else sPut(date,day,name,i,{ok:1, w:s.w||sPlan(pw)});
 }
-/* 그 일차의 기록 날짜 — 달력에서 고른 날 · 아니면 오늘부터 거꾸로 가장 가까운 그 일차 · 없으면 앞으로 */
+/* 그 일차의 기록 날짜 — 달력에서 고른 날 · 아니면 오늘에서 앞뒤로 더 가까운 그 일차(거리가 같으면 지난 쪽).
+   2026-11-28 사용자 — 토요일 새벽 운동 → 7시간 자고 → 저녁에 다음 날 일차를 당겨 하는 날이 종종 있다.
+   거꾸로만 찾던 때는 그 일차 화면이 지난 사이클 칸(9일 전 11/19)을 열어 그 위에 덮어썼다 */
 function logDateFor(day){
   if(LOGDATE&&LOGDATE.day===day) return LOGDATE.date;
-  const t=ymd(new Date());
-  for(let i=0;i<CLEN;i++){ const a=dayAdd(t,-i), c=cycDayOf(a); if(c&&c.day===day) return a; }
-  for(let i=1;i<=CLEN;i++){ const a=dayAdd(t,i), c=cycDayOf(a); if(c&&c.day===day) return a; }
-  return t;
+  const t=ymd(new Date()); let back=null, fwd=null, b=0, f=0;
+  for(let i=0;i<CLEN;i++){ const a=dayAdd(t,-i), c=cycDayOf(a); if(c&&c.day===day){ back=a; b=i; break; } }
+  for(let i=1;i<=CLEN;i++){ const a=dayAdd(t,i), c=cycDayOf(a); if(c&&c.day===day){ fwd=a; f=i; break; } }
+  if(back&&fwd) return f<b?fwd:back;
+  return back||fwd||t;
 }
 function sRowsHTML(e,i0,i1,date,pw,a){
   const L=sGet(date,e.name); let h="";

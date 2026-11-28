@@ -234,6 +234,11 @@ FALLBACK = {
     # 뒤 일차면 '지난 사이클'(10 → 다음 1)을 본다(앱 applyFb)
     ("9", "오버헤드 슈러그(스미스)"): "6",
     ("1", "덤벨 슈러그"): "10",
+    # 2026-11-28 사용자 — 9일차 전완을 못 하면(팔이 먼저 지침 · 토요일 하루 두 번째 세션) 같은 사이클 10일차 맨 끝에서.
+    # 옮긴 게 아니라 원래 자리는 9일차 그대로 · 10일차도 쉬면 그 사이클 전완은 빠진다(더 넘기지 않음)
+    ("10", "시티드 리스트 컬(손등 아래)"): "9",
+    ("10", "시티드 리스트 컬(손등 위)"): "9",
+    ("10", "원암 케이블 리스트 컬 (핑거 롤)"): "9",
 }
 MOVE = {
     # 2026-11-28 8일차 홀수 사이클 11번이 본 센터 인클라인 체스트 프레스 머신이 되며 옆 센터 이동 안내(인클라인 플라이 머신)를 뺐다
@@ -2577,7 +2582,7 @@ function exHTML(e,prefix,sets,timed){
      엑셀도 조건부서식($E=0)으로 같은 줄을 연회색 처리한다. 되살릴 수 있게 행은 남긴다. */
   if(n===0) return `<article class="ex hold"><div class="ex-h">
       <div class="ex-n num">${e.n}</div>
-      <div class="ex-t"><h4>${esc(e.name)}</h4>${e.fb?`<div class="grip">${esc(e.fb.d)}일차로 옮김 · ${e.fbSame?"이번":"지난"} 사이클 ${esc(e.fb.d)}일차에 했음 → 보류 (안 했으면 여기서 ${e.fb.s}세트)</div>`:""}<div class="mg">${esc(e.mg)}</div></div>
+      <div class="ex-t"><h4>${esc(e.name)}</h4>${e.fb?`<div class="grip">${esc(e.fb.d)}일차 종목 · ${e.fbSame?"이번":"지난"} 사이클 ${esc(e.fb.d)}일차에 했음 → 보류 (안 했으면 여기서 ${e.fb.s}세트)</div>`:""}<div class="mg">${esc(e.mg)}</div></div>
       <div class="ex-p">${e.s===0 ? `<b class="hold-w">보류</b><span class="num">${esc(e.r)}</span>`
         : `<b class="hold-w">${dlOn()?"디로드 — 쉼":e.rw+"주차 복귀"}</b><span class="num">설계 ${e.s} × ${esc(e.r)}</span>`}
       </div></div></article>`;
